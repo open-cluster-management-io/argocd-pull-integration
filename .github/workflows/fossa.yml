@@ -1,0 +1,19 @@
+name: FOSSA License Scan
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch: {}
+
+jobs:
+  fossa-scan:
+    runs-on: ubuntu-latest
+    if: ${{ github.repository.fork == false }}
+    steps:
+      - name: Checkout Repo
+        uses: actions/checkout@v3
+      - name: Run FOSSA Scan
+        uses: fossas/fossa-action@v1
+        with:
+          api-key: ${{ secrets.FOSSA_API_KEY }}
