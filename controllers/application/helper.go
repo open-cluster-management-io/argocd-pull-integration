@@ -105,9 +105,8 @@ func prepareApplicationForWorkPayload(application argov1alpha1.Application) argo
 			Kind:       argov1alpha1.ApplicationSchemaGroupVersionKind.Kind,
 		},
 		ObjectMeta: metav1.ObjectMeta{
-			Namespace:  generateAppNamespace(application),
-			Name:       application.Name,
-			Finalizers: application.Finalizers,
+			Namespace: generateAppNamespace(application),
+			Name:      application.Name,
 		},
 		Spec: application.Spec,
 	}
@@ -116,6 +115,15 @@ func prepareApplicationForWorkPayload(application argov1alpha1.Application) argo
 	newApp.Spec.Destination.Name = ""
 	// always set for in-cluster destination
 	newApp.Spec.Destination.Server = argov1alpha1.KubernetesInternalAPIServerAddr
+	// copy the finalizers except for the ocm specific finalizers
+	newApp.Finalizers = []string{}
+	if len(application.Finalizers) > 0 {
+		for _, finalizer := range application.Finalizers {
+			if finalizer != FinalizerCleanupManifestWork {
+				newApp.Finalizers = append(newApp.Finalizers, finalizer)
+			}
+		}
+	}
 	// copy the labels except for the ocm specific labels
 	newApp.Labels = make(map[string]string)
 	if len(application.Labels) > 0 {
