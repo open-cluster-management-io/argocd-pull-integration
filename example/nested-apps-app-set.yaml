@@ -19,6 +19,8 @@ spec:
       annotations:
         argocd.argoproj.io/ocm-managed-cluster: '{{name}}'
         argocd.argoproj.io/ocm-managed-cluster-app-namespace: argocd
+      finalizers:
+      - cleanup-finalizer.apps.open-cluster-management.io
     spec:
       project: default
       source:

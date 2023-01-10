@@ -44,6 +44,8 @@ const (
 	LabelKeyAppSet = "apps.open-cluster-management.io/application-set"
 	// Application label that enables the pull controller to wrap the Application in ManifestWork payload
 	LabelKeyPull = "argocd.argoproj.io/pull-to-ocm-managed-cluster"
+	// FinalizerCleanupManifestWork if present will hold the deleting Application until the associated ManifestWork gets cleaned up
+	FinalizerCleanupManifestWork = "cleanup-finalizer.apps.open-cluster-management.io"
 )
 
 // ApplicationReconciler reconciles a Application object
@@ -97,12 +99,13 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	mwName := generateManifestWorkName(application)
 
 	// the Application is being deleted, find the ManifestWork and delete that as well
-	if application.ObjectMeta.DeletionTimestamp != nil {
-		// remove finalizer from Application but do not 'commit' yet
+	if !application.DeletionTimestamp.IsZero() {
+		// remove finalizers from Application but do not 'commit' yet
 		if len(application.Finalizers) != 0 {
 			f := application.GetFinalizers()
 			for i := 0; i < len(f); i++ {
-				if f[i] == argov1alpha1.ResourcesFinalizerName {
+				if f[i] == argov1alpha1.ResourcesFinalizerName ||
+					f[i] == FinalizerCleanupManifestWork {
 					f = append(f[:i], f[i+1:]...)
 					i--
 				}
@@ -116,7 +119,7 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		if errors.IsNotFound(err) {
 			// already deleted ManifestWork, commit the Application finalizer removal
 			if err = r.Update(ctx, &application); err != nil {
-				log.Error(err, "unable to update Application")
+				log.Error(err, "unable to remove Application finalizer")
 				return ctrl.Result{}, err
 			}
 		} else if err != nil {
@@ -131,7 +134,7 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 		// deleted ManifestWork, commit the Application finalizer removal
 		if err := r.Update(ctx, &application); err != nil {
-			log.Error(err, "unable to update Application")
+			log.Error(err, "unable to remove Application finalizer")
 			return ctrl.Result{}, err
 		}
 

@@ -95,7 +95,7 @@ var _ = Describe("Application Pull controller", func() {
 					Namespace:   appNamespace,
 					Labels:      map[string]string{LabelKeyPull: strconv.FormatBool(true)},
 					Annotations: map[string]string{AnnotationKeyOCMManagedCluster: clusterName},
-					Finalizers:  []string{argov1alpha1.ResourcesFinalizerName},
+					Finalizers:  []string{argov1alpha1.ResourcesFinalizerName, FinalizerCleanupManifestWork},
 				},
 				Spec: argov1alpha1.ApplicationSpec{
 					Project: "default",
@@ -116,8 +116,16 @@ var _ = Describe("Application Pull controller", func() {
 
 			By("Updating the Application")
 			oldRv := mw.GetResourceVersion()
-			app2.Spec.Project = "somethingelse"
-			Expect(k8sClient.Update(ctx, &app2)).Should(Succeed())
+			Eventually(func() bool {
+				if err := k8sClient.Get(ctx, appKey2, &app2); err != nil {
+					return false
+				}
+				app2.Spec.Project = "somethingelse"
+				if err := k8sClient.Update(ctx, &app2); err != nil {
+					return false
+				}
+				return true
+			}).Should(BeTrue())
 			Eventually(func() bool {
 				if err := k8sClient.Get(ctx, mwKey, &mw); err != nil {
 					return false
