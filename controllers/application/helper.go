@@ -130,7 +130,8 @@ func prepareApplicationForWorkPayload(application argov1alpha1.Application) argo
 	if len(application.Annotations) > 0 {
 		for key, value := range application.Annotations {
 			if key != AnnotationKeyOCMManagedCluster &&
-				key != AnnotationKeyOCMManagedClusterAppNamespace {
+				key != AnnotationKeyOCMManagedClusterAppNamespace &&
+				key != AnnotationKeyAppSkipReconcile {
 				newApp.Annotations[key] = value
 			}
 		}

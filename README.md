@@ -39,6 +39,8 @@ The OCM agent on the Managed cluster will see the ManifestWork on the Hub cluste
 ```
 kubectl -n argocd scale statefulset/argocd-application-controller --replicas 0
 ```
+**Note** This step is not necssary if the ArgoCD instance you are using contains the feature: 
+https://argo-cd.readthedocs.io/en/latest/user-guide/skip_reconcile/
 
 4. Clone this project and connect to the Hub cluster and start the Pull controller:
 ```
@@ -94,7 +96,7 @@ kubectl apply -f example/guestbook-app-set.yaml
       labels:
         argocd.argoproj.io/pull-to-ocm-managed-cluster: 'true'
       annotations:
-        argocd.argoproj.io/skip-reconcile: "true"
+        argocd.argoproj.io/skip-reconcile: 'true'
         argocd.argoproj.io/ocm-managed-cluster: '{{name}}'
 ```
 The label allows the pull model controller to select the Application for processing.

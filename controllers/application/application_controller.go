@@ -40,6 +40,8 @@ const (
 	AnnotationKeyOCMManagedClusterAppNamespace = "argocd.argoproj.io/ocm-managed-cluster-app-namespace"
 	// Application and ManifestWork annotation that shows which ApplicationSet is the grand parent of this work
 	AnnotationKeyAppSet = "apps.open-cluster-management.io/hosting-applicationset"
+	// Application annotation that enables the skip reconcilation of an application
+	AnnotationKeyAppSkipReconcile = "argocd.argoproj.io/skip-reconcile"
 	// Application and ManifestWork label that shows that ApplicationSet is the grand parent of this work
 	LabelKeyAppSet = "apps.open-cluster-management.io/application-set"
 	// Application label that enables the pull controller to wrap the Application in ManifestWork payload
