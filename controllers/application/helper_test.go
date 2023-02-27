@@ -22,6 +22,7 @@ import (
 
 	argov1alpha1 "github.com/argoproj/argo-cd/v2/pkg/apis/application/v1alpha1"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	workv1 "open-cluster-management.io/api/work/v1"
 )
 
 func Test_containsValidPullLabel(t *testing.T) {
@@ -159,6 +160,86 @@ func Test_containsValidPullAnnotation(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := containsValidPullAnnotation(tt.args.application); got != tt.want {
 				t.Errorf("containsValidPullAnnotation() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func Test_containsValidManifestWorkHubApplicationAnnotations(t *testing.T) {
+	type args struct {
+		manifestWork workv1.ManifestWork
+	}
+	tests := []struct {
+		name string
+		args args
+		want bool
+	}{
+		{
+			name: "valid application annotations",
+			args: args{
+				workv1.ManifestWork{
+					ObjectMeta: v1.ObjectMeta{
+						Annotations: map[string]string{
+							AnnotationKeyHubApplicationNamespace: "namespace1",
+							AnnotationKeyHubApplicationName:      "app-name1",
+						},
+					},
+				},
+			},
+			want: true,
+		},
+		{
+			name: "missing application namespace annotation",
+			args: args{
+				workv1.ManifestWork{
+					ObjectMeta: v1.ObjectMeta{
+						Annotations: map[string]string{
+							AnnotationKeyHubApplicationName: "app-name1",
+						},
+					},
+				},
+			},
+			want: false,
+		},
+		{
+			name: "missing application name annotation",
+			args: args{
+				workv1.ManifestWork{
+					ObjectMeta: v1.ObjectMeta{
+						Annotations: map[string]string{
+							AnnotationKeyHubApplicationNamespace: "namespace1",
+						},
+					},
+				},
+			},
+			want: false,
+		},
+		{
+			name: "empty value",
+			args: args{
+				workv1.ManifestWork{
+					ObjectMeta: v1.ObjectMeta{
+						Annotations: map[string]string{
+							AnnotationKeyHubApplicationNamespace: "",
+							AnnotationKeyHubApplicationName:      "",
+						},
+					},
+				},
+			},
+			want: false,
+		},
+		{
+			name: "no application annotation",
+			args: args{
+				workv1.ManifestWork{},
+			},
+			want: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := containsValidManifestWorkHubApplicationAnnotations(tt.args.manifestWork); got != tt.want {
+				t.Errorf("containsValidManifestWorkHubApplicationAnnotations() = %v, want %v", got, tt.want)
 			}
 		})
 	}
@@ -349,7 +430,11 @@ func Test_generateManifestWork(t *testing.T) {
 			},
 			want: results{
 				workLabel: map[string]string{LabelKeyAppSet: "true"},
-				workAnno:  map[string]string{AnnotationKeyAppSet: "argocd/appset1"},
+				workAnno: map[string]string{
+					AnnotationKeyAppSet:                  "argocd/appset1",
+					AnnotationKeyHubApplicationNamespace: "argocd",
+					AnnotationKeyHubApplicationName:      "app1",
+				},
 			},
 		},
 	}

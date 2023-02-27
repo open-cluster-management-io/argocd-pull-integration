@@ -42,6 +42,10 @@ const (
 	AnnotationKeyAppSet = "apps.open-cluster-management.io/hosting-applicationset"
 	// Application annotation that enables the skip reconcilation of an application
 	AnnotationKeyAppSkipReconcile = "argocd.argoproj.io/skip-reconcile"
+	// ManifestWork annotation that shows the namespace of the hub Application.
+	AnnotationKeyHubApplicationNamespace = "apps.open-cluster-management.io/hub-application-namespace"
+	// ManifestWork annotation that shows the name of the hub Application.
+	AnnotationKeyHubApplicationName = "apps.open-cluster-management.io/hub-application-name"
 	// Application and ManifestWork label that shows that ApplicationSet is the grand parent of this work
 	LabelKeyAppSet = "apps.open-cluster-management.io/application-set"
 	// Application label that enables the pull controller to wrap the Application in ManifestWork payload
