@@ -55,6 +55,18 @@ func containsValidPullAnnotation(application argov1alpha1.Application) bool {
 	return ok && len(managedClusterName) > 0
 }
 
+func containsValidManifestWorkHubApplicationAnnotations(manifestWork workv1.ManifestWork) bool {
+	annos := manifestWork.GetAnnotations()
+	if len(annos) == 0 {
+		return false
+	}
+
+	namespace, ok := annos[AnnotationKeyHubApplicationNamespace]
+	name, ok2 := annos[AnnotationKeyHubApplicationName]
+
+	return ok && ok2 && len(namespace) > 0 && len(name) > 0
+}
+
 // generateAppNamespace returns the intended namespace for the Application in the following priority
 // 1) Annotation specified custom namespace
 // 2) Application's namespace value
@@ -152,12 +164,16 @@ func prepareApplicationForWorkPayload(application argov1alpha1.Application) argo
 // If the Application is generated from an ApplicationSet, custom label and annotation are inserted.
 func generateManifestWork(name, namespace string, application argov1alpha1.Application) *workv1.ManifestWork {
 	var workLabels map[string]string
-	var workAnnos map[string]string
+
+	workAnnos := map[string]string{
+		AnnotationKeyHubApplicationNamespace: application.Namespace,
+		AnnotationKeyHubApplicationName:      application.Name,
+	}
 
 	appSetOwnerName := getAppSetOwnerName(application)
 	if appSetOwnerName != "" {
 		workLabels = map[string]string{LabelKeyAppSet: strconv.FormatBool(true)}
-		workAnnos = map[string]string{AnnotationKeyAppSet: application.Namespace + "/" + appSetOwnerName}
+		workAnnos[AnnotationKeyAppSet] = application.Namespace + "/" + appSetOwnerName
 	}
 
 	application = prepareApplicationForWorkPayload(application)
@@ -186,6 +202,7 @@ func generateManifestWork(name, namespace string, application argov1alpha1.Appli
 						{Type: workv1.JSONPathsType, JsonPaths: []workv1.JsonPath{{Name: "healthStatus", Path: ".status.health.status"}}},
 						{Type: workv1.JSONPathsType, JsonPaths: []workv1.JsonPath{{Name: "syncStatus", Path: ".status.sync.status"}}},
 					},
+					UpdateStrategy: &workv1.UpdateStrategy{Type: workv1.UpdateStrategyTypeUpdate},
 				},
 			},
 		},

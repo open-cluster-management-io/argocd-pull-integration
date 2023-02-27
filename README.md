@@ -55,11 +55,14 @@ make run
 ...
 INFO	controller.application	Starting EventSource	{"reconciler group": "argoproj.io", "reconciler kind": "Application", "source": "kind source: *v1alpha1.Application"}
 INFO	controller.application	Starting Controller	{"reconciler group": "argoproj.io", "reconciler kind": "Application"}
+INFO	controller.manifestwork	Starting EventSource	{"reconciler group": "work.open-cluster-management.io", "reconciler kind": "ManifestWork", "source": "kind source: *v1.ManifestWork"}
+INFO	controller.manifestwork	Starting Controller	{"reconciler group": "work.open-cluster-management.io", "reconciler kind": "ManifestWork"}
 INFO	controller.application	Starting workers	{"reconciler group": "argoproj.io", "reconciler kind": "Application", "worker count": 1}
+INFO	controller.manifestwork	Starting workers	{"reconciler group": "work.open-cluster-management.io", "reconciler kind": "ManifestWork", "worker count": 1}
 ...
 ```
 
-6. On the Hub cluster, create an ArgoCD cluster secret that represent the managed cluster. This step can be automated with [OCM auto import controller](https://github.com/open-cluster-management-io/multicloud-integrations/tree/enable-pull-model-import).
+6. On the Hub cluster, create an ArgoCD cluster secret that represent the managed cluster. This step can be automated with [OCM auto import controller](https://github.com/open-cluster-management-io/multicloud-integrations/).
 **Note** replace the `cluster-name` with the registered managed cluster name.
 ```
 cat <<EOF | kubectl apply -f -
@@ -126,10 +129,17 @@ cluster1-guestbook-app-d0e5   2m41s
 ```
 $ kubectl -n argocd get app
 NAME                     SYNC STATUS   HEALTH STATUS
-cluster2-guestbook-app   Synced        Healthy
+cluster1-guestbook-app   Synced        Healthy
 $ kubectl -n guestbook get deploy
 NAME           READY   UP-TO-DATE   AVAILABLE   AGE
 guestbook-ui   1/1     1            1           7m36s
+```
+
+13. On the Hub cluster, the status controller will sync the dormant Application with the ManifestWork status feedback. For example:
+```
+$ kubectl -n argocd get app
+NAME                     SYNC STATUS   HEALTH STATUS
+cluster1-guestbook-app   Synced        Healthy
 ```
 
 ## Community, discussion, contribution, and support
