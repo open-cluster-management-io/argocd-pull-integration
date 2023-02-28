@@ -47,19 +47,13 @@ https://argo-cd.readthedocs.io/en/latest/user-guide/skip_reconcile/
 git clone ...
 cd argocd-pull-integration
 export KUBECONFIG=/path/to/<hub-kubeconfig>
-make run
+make deploy
 ```
 
 5. If your controller starts successfully, you should see:
 ```
-...
-INFO	controller.application	Starting EventSource	{"reconciler group": "argoproj.io", "reconciler kind": "Application", "source": "kind source: *v1alpha1.Application"}
-INFO	controller.application	Starting Controller	{"reconciler group": "argoproj.io", "reconciler kind": "Application"}
-INFO	controller.manifestwork	Starting EventSource	{"reconciler group": "work.open-cluster-management.io", "reconciler kind": "ManifestWork", "source": "kind source: *v1.ManifestWork"}
-INFO	controller.manifestwork	Starting Controller	{"reconciler group": "work.open-cluster-management.io", "reconciler kind": "ManifestWork"}
-INFO	controller.application	Starting workers	{"reconciler group": "argoproj.io", "reconciler kind": "Application", "worker count": 1}
-INFO	controller.manifestwork	Starting workers	{"reconciler group": "work.open-cluster-management.io", "reconciler kind": "ManifestWork", "worker count": 1}
-...
+$ kubectl -n argocd get deploy | grep pull
+argocd-pull-integration-controller-manager   1/1     1            1           106s
 ```
 
 6. On the Hub cluster, create an ArgoCD cluster secret that represent the managed cluster. This step can be automated with [OCM auto import controller](https://github.com/open-cluster-management-io/multicloud-integrations/).
