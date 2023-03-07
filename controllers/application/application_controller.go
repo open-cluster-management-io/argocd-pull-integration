@@ -35,9 +35,9 @@ import (
 
 const (
 	// Application annotation that dictates which managed cluster this Application should be pulled to
-	AnnotationKeyOCMManagedCluster = "argocd.argoproj.io/ocm-managed-cluster"
+	AnnotationKeyOCMManagedCluster = "apps.open-cluster-management.io/ocm-managed-cluster"
 	// Application annotation that dictates which managed cluster namespace this Application should be pulled to
-	AnnotationKeyOCMManagedClusterAppNamespace = "argocd.argoproj.io/ocm-managed-cluster-app-namespace"
+	AnnotationKeyOCMManagedClusterAppNamespace = "apps.open-cluster-management.io/ocm-managed-cluster-app-namespace"
 	// Application and ManifestWork annotation that shows which ApplicationSet is the grand parent of this work
 	AnnotationKeyAppSet = "apps.open-cluster-management.io/hosting-applicationset"
 	// Application annotation that enables the skip reconcilation of an application
@@ -49,7 +49,7 @@ const (
 	// Application and ManifestWork label that shows that ApplicationSet is the grand parent of this work
 	LabelKeyAppSet = "apps.open-cluster-management.io/application-set"
 	// Application label that enables the pull controller to wrap the Application in ManifestWork payload
-	LabelKeyPull = "argocd.argoproj.io/pull-to-ocm-managed-cluster"
+	LabelKeyPull = "apps.open-cluster-management.io/pull-to-ocm-managed-cluster"
 )
 
 // ApplicationReconciler reconciles a Application object
