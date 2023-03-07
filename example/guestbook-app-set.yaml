@@ -15,11 +15,11 @@ spec:
     metadata:
       name: '{{name}}-guestbook-app'
       labels:
-        argocd.argoproj.io/pull-to-ocm-managed-cluster: 'true'
+        apps.open-cluster-management.io/pull-to-ocm-managed-cluster: 'true'
       annotations:
         argocd.argoproj.io/skip-reconcile: 'true'
-        argocd.argoproj.io/ocm-managed-cluster: '{{name}}'
-        argocd.argoproj.io/ocm-managed-cluster-app-namespace: argocd
+        apps.open-cluster-management.io/ocm-managed-cluster: '{{name}}'
+        apps.open-cluster-management.io/ocm-managed-cluster-app-namespace: argocd
     spec:
       project: default
       source:

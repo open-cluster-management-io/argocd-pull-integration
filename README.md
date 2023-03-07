@@ -91,10 +91,10 @@ kubectl apply -f example/guestbook-app-set.yaml
 **Note** The Application template inside the ApplicationSet must contain the following content:
 ```
       labels:
-        argocd.argoproj.io/pull-to-ocm-managed-cluster: 'true'
+        apps.open-cluster-management.io/pull-to-ocm-managed-cluster: 'true'
       annotations:
         argocd.argoproj.io/skip-reconcile: 'true'
-        argocd.argoproj.io/ocm-managed-cluster: '{{name}}'
+        apps.open-cluster-management.io/ocm-managed-cluster: '{{name}}'
 ```
 The label allows the pull model controller to select the Application for processing.
 
