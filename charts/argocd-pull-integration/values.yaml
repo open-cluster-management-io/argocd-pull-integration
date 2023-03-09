@@ -1,0 +1,11 @@
+# Image registry
+registry: quay.io/open-cluster-management
+
+# Image
+image: argocd-pull-integration
+
+# Image tag
+tag: latest
+
+# Number of replicas
+replicas: 1
