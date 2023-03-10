@@ -31,9 +31,9 @@ The OCM agent on the Managed cluster will see the ManifestWork on the Hub cluste
 - Hub cluster and remote/managed clusters need to have ArgoCD Application installed. See [ArgoCD website](https://argo-cd.readthedocs.io/en/stable/getting_started/) for more details.
 
 ## Getting Started
-1. Setup an OCM Hub cluster and registered an OCM Managed cluster.
+1. Setup an OCM Hub cluster and registered an OCM Managed cluster. See [Open Cluster Management Quick Start](https://open-cluster-management.io/getting-started/quick-start/) for more details.
 
-2. Install ArgoCD on both clusters.
+2. Install ArgoCD on both clusters. See [ArgoCD website](https://argo-cd.readthedocs.io/en/stable/getting_started/) for more details.
 
 3. On the Hub cluster, scale down the Application controller:
 ```
