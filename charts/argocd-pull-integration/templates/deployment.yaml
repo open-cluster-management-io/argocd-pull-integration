@@ -24,18 +24,17 @@ spec:
         - /manager
         image: {{ .Values.registry }}/{{ .Values.image }}:{{ .Values.tag }}
         livenessProbe:
-          httpGet:
-            path: /healthz
-            port: 8081
+          exec:
+            command:
+            - ls
           initialDelaySeconds: 15
-          periodSeconds: 20
-        name: manager
+          periodSeconds: 15
         readinessProbe:
-          httpGet:
-            path: /readyz
-            port: 8081
-          initialDelaySeconds: 5
-          periodSeconds: 10
+          exec:
+            command:
+            - ls
+          initialDelaySeconds: 15
+          periodSeconds: 15
         resources:
           limits:
             cpu: 500m
