@@ -37,10 +37,7 @@ jobs:
       - name: pull base image
         run: docker pull registry.access.redhat.com/ubi8/ubi-minimal:latest --platform=linux/${{ matrix.arch }}
       - name: images
-        run: |
-          IMAGE=quay.io/open-cluster-management/argocd-pull-integration:${{ needs.env.outputs.RELEASE_VERSION }}-${{ matrix.arch }} \
-          IMAGE_BUILD_EXTRA_FLAGS="--build-arg OS=linux --build-arg ARCH=${{ matrix.arch }}" \
-            make docker-build
+        run: make docker-build
       - name: push
         run: |
           echo ${{ secrets.DOCKER_PASSWORD }} | docker login quay.io --username ${{ secrets.DOCKER_USER }} --password-stdin
