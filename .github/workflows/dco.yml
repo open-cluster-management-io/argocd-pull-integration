@@ -7,7 +7,6 @@ on:
 
 jobs:
   dco_check:
-    if: github.repository == 'open-cluster-management-io/argocd-pull-integration'
     runs-on: ubuntu-latest
     name: DCO Check
     steps:

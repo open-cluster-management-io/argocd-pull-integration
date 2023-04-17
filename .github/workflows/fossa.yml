@@ -8,7 +8,6 @@ on:
 
 jobs:
   fossa-scan:
-    if: github.repository == 'open-cluster-management-io/argocd-pull-integration'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Repo
