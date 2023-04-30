@@ -18,7 +18,6 @@ package application
 
 import (
 	"context"
-	"fmt"
 
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -46,12 +45,12 @@ type ApplicationStatusReconciler struct {
 var ManifestWorkPredicateFunctions = predicate.Funcs{
 	UpdateFunc: func(e event.UpdateEvent) bool {
 		newManifestWork := e.ObjectNew.(*workv1.ManifestWork)
-		return containsValidManifestWorkHubApplicationAnnotations(*newManifestWork)
+		return containsValidPullLabel(newManifestWork.Labels) && containsValidManifestWorkHubApplicationAnnotations(*newManifestWork)
 
 	},
 	CreateFunc: func(e event.CreateEvent) bool {
 		manifestWork := e.Object.(*workv1.ManifestWork)
-		return containsValidManifestWorkHubApplicationAnnotations(*manifestWork)
+		return containsValidPullLabel(manifestWork.Labels) && containsValidManifestWorkHubApplicationAnnotations(*manifestWork)
 	},
 
 	DeleteFunc: func(e event.DeleteEvent) bool {
@@ -118,14 +117,6 @@ func (r *ApplicationStatusReconciler) Reconcile(ctx context.Context, req ctrl.Re
 	application.Status.Sync.Status = argov1alpha1.SyncStatusCode(syncStatus)
 	application.Status.Health.Status = health.HealthStatusCode(healthStatus)
 	log.Info("updating Application status with ManifestWork status feedbacks")
-
-	appSetName := getAppSetOwnerName(application)
-	if appSetName != "" && len(application.Status.Conditions) == 0 {
-		application.Status.Conditions = []argov1alpha1.ApplicationCondition{{
-			Type:    "AdditionalStatusReport",
-			Message: fmt.Sprintf("kubectl get multiclusterapplicationsetreports -n %s %s", application.Namespace, appSetName),
-		}}
-	}
 
 	err := r.Client.Update(ctx, &application)
 	if err != nil {

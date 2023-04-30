@@ -48,7 +48,7 @@ const (
 	AnnotationKeyHubApplicationName = "apps.open-cluster-management.io/hub-application-name"
 	// Application and ManifestWork label that shows that ApplicationSet is the grand parent of this work
 	LabelKeyAppSet = "apps.open-cluster-management.io/application-set"
-	// Application label that enables the pull controller to wrap the Application in ManifestWork payload
+	// Application and ManifestWork label that enables the pull controller to wrap the Application in ManifestWork payload
 	LabelKeyPull = "apps.open-cluster-management.io/pull-to-ocm-managed-cluster"
 )
 
@@ -66,17 +66,17 @@ type ApplicationReconciler struct {
 var ApplicationPredicateFunctions = predicate.Funcs{
 	UpdateFunc: func(e event.UpdateEvent) bool {
 		newApp := e.ObjectNew.(*argov1alpha1.Application)
-		return containsValidPullLabel(*newApp) && containsValidPullAnnotation(*newApp)
+		return containsValidPullLabel(newApp.Labels) && containsValidPullAnnotation(*newApp)
 
 	},
 	CreateFunc: func(e event.CreateEvent) bool {
 		app := e.Object.(*argov1alpha1.Application)
-		return containsValidPullLabel(*app) && containsValidPullAnnotation(*app)
+		return containsValidPullLabel(app.Labels) && containsValidPullAnnotation(*app)
 	},
 
 	DeleteFunc: func(e event.DeleteEvent) bool {
 		app := e.Object.(*argov1alpha1.Application)
-		return containsValidPullLabel(*app) && containsValidPullAnnotation(*app)
+		return containsValidPullLabel(app.Labels) && containsValidPullAnnotation(*app)
 	},
 }
 
@@ -164,8 +164,9 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			return ctrl.Result{}, err
 		}
 	} else if err == nil {
-		app := prepareApplicationForWorkPayload(application)
-		mw.Spec.Workload.Manifests = []workv1.Manifest{{RawExtension: runtime.RawExtension{Object: &app}}}
+		mw.Spec = w.Spec
+		mw.Annotations = w.Annotations
+		mw.Labels = w.Labels
 		err = r.Client.Update(ctx, &mw)
 		if err != nil {
 			log.Error(err, "unable to update ManifestWork")

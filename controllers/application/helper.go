@@ -28,8 +28,7 @@ import (
 	workv1 "open-cluster-management.io/api/work/v1"
 )
 
-func containsValidPullLabel(application argov1alpha1.Application) bool {
-	labels := application.GetLabels()
+func containsValidPullLabel(labels map[string]string) bool {
 	if len(labels) == 0 {
 		return false
 	}
@@ -163,7 +162,9 @@ func prepareApplicationForWorkPayload(application argov1alpha1.Application) argo
 // The Application payload Spec Destination values are modified so that the Application is always performing in-cluster resource deployments.
 // If the Application is generated from an ApplicationSet, custom label and annotation are inserted.
 func generateManifestWork(name, namespace string, application argov1alpha1.Application) *workv1.ManifestWork {
-	var workLabels map[string]string
+	workLabels := map[string]string{
+		LabelKeyPull: strconv.FormatBool(true),
+	}
 
 	workAnnos := map[string]string{
 		AnnotationKeyHubApplicationNamespace: application.Namespace,
@@ -172,7 +173,7 @@ func generateManifestWork(name, namespace string, application argov1alpha1.Appli
 
 	appSetOwnerName := getAppSetOwnerName(application)
 	if appSetOwnerName != "" {
-		workLabels = map[string]string{LabelKeyAppSet: strconv.FormatBool(true)}
+		workLabels[LabelKeyAppSet] = strconv.FormatBool(true)
 		workAnnos[AnnotationKeyAppSet] = application.Namespace + "/" + appSetOwnerName
 	}
 
