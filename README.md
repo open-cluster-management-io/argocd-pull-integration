@@ -42,17 +42,14 @@ kubectl -n argocd scale statefulset/argocd-application-controller --replicas 0
 **Note** This step is not necssary if the ArgoCD instance you are using contains the feature: 
 https://argo-cd.readthedocs.io/en/latest/user-guide/skip_reconcile/
 
-4. Clone this project and connect to the Hub cluster and start the Pull controller:
+4. Install the Pull controller:
 ```
-git clone ...
-cd argocd-pull-integration
-export KUBECONFIG=/path/to/<hub-kubeconfig>
-make deploy
+kubectl apply -f https://raw.githubusercontent.com/open-cluster-management-io/argocd-pull-integration/main/deploy/install.yaml
 ```
 
 5. If your controller starts successfully, you should see:
 ```
-$ kubectl -n argocd get deploy | grep pull
+$ kubectl -n open-cluster-management get deploy | grep pull
 argocd-pull-integration-controller-manager   1/1     1            1           106s
 ```
 
