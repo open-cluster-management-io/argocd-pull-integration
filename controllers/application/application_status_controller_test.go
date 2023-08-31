@@ -51,6 +51,11 @@ var _ = Describe("Application Pull controller", func() {
 					Name:      appName,
 					Namespace: appNamespace,
 				},
+				Spec: argov1alpha1.ApplicationSpec{
+					Source: &argov1alpha1.ApplicationSource{
+						RepoURL: "default",
+					},
+				},
 			}
 			Expect(k8sClient.Create(ctx, &app1)).Should(Succeed())
 

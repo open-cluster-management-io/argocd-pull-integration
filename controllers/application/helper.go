@@ -24,7 +24,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 
 	argov1alpha1 "github.com/argoproj/argo-cd/v2/pkg/apis/application/v1alpha1"
-	appsetv1alpha1 "github.com/argoproj/argo-cd/v2/pkg/apis/applicationset/v1alpha1"
 	workv1 "open-cluster-management.io/api/work/v1"
 )
 
@@ -95,7 +94,7 @@ func generateManifestWorkName(application argov1alpha1.Application) string {
 func getAppSetOwnerName(application argov1alpha1.Application) string {
 	if len(application.OwnerReferences) > 0 {
 		for _, ownerRef := range application.OwnerReferences {
-			if strings.EqualFold(ownerRef.APIVersion, appsetv1alpha1.GroupVersion.String()) &&
+			if strings.EqualFold(ownerRef.APIVersion, "argoproj.io/v1alpha1") &&
 				strings.EqualFold(ownerRef.Kind, "ApplicationSet") { // TODO find the constant value from the argo appset API for this field
 				return ownerRef.Name
 			}

@@ -54,6 +54,11 @@ var _ = Describe("Application Pull controller", func() {
 					Namespace:   appNamespace,
 					Annotations: map[string]string{AnnotationKeyOCMManagedCluster: clusterName},
 				},
+				Spec: argov1alpha1.ApplicationSpec{
+					Source: &argov1alpha1.ApplicationSource{
+						RepoURL: "default",
+					},
+				},
 			}
 			Expect(k8sClient.Create(ctx, &app1)).Should(Succeed())
 			app1 = argov1alpha1.Application{}
@@ -99,6 +104,9 @@ var _ = Describe("Application Pull controller", func() {
 				},
 				Spec: argov1alpha1.ApplicationSpec{
 					Project: "default",
+					Source: &argov1alpha1.ApplicationSource{
+						RepoURL: "default",
+					},
 				},
 			}
 			Expect(k8sClient.Create(ctx, &app2)).Should(Succeed())
