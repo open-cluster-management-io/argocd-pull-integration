@@ -23,10 +23,11 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 
-	argov1alpha1 "github.com/argoproj/argo-cd/v2/pkg/apis/application/v1alpha1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	workv1 "open-cluster-management.io/api/work/v1"
 )
 
@@ -46,18 +47,24 @@ var _ = Describe("Application Pull controller", func() {
 	Context("When ManifestWork is created/updated", func() {
 		It("Should update Application status", func() {
 			By("Creating the Application")
-			app1 := argov1alpha1.Application{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      appName,
-					Namespace: appNamespace,
+			app1 := &unstructured.Unstructured{}
+			app1.SetGroupVersionKind(schema.GroupVersionKind{
+				Group:   "argoproj.io",
+				Version: "v1alpha1",
+				Kind:    "Application",
+			})
+			app1.SetName(appName)
+			app1.SetNamespace(appNamespace)
+			app1.Object["spec"] = map[string]interface{}{
+				"project": "default", // Required field
+				"source": map[string]interface{}{
+					"repoURL": "default",
 				},
-				Spec: argov1alpha1.ApplicationSpec{
-					Source: &argov1alpha1.ApplicationSource{
-						RepoURL: "default",
-					},
+				"destination": map[string]interface{}{ // Required field
+					"server": KubernetesInternalAPIServerAddr,
 				},
 			}
-			Expect(k8sClient.Create(ctx, &app1)).Should(Succeed())
+			Expect(k8sClient.Create(ctx, app1)).Should(Succeed())
 
 			By("Creating the ManifestWork")
 			work1 := workv1.ManifestWork{
@@ -98,11 +105,24 @@ var _ = Describe("Application Pull controller", func() {
 				},
 			}
 			Expect(k8sClient.Status().Update(ctx, &work1)).Should(Succeed())
+
+			// Verify that the Application status is updated
 			Eventually(func() bool {
-				if err := k8sClient.Get(ctx, appKey, &app1); err != nil {
+				app := &unstructured.Unstructured{}
+				app.SetGroupVersionKind(schema.GroupVersionKind{
+					Group:   "argoproj.io",
+					Version: "v1alpha1",
+					Kind:    "Application",
+				})
+				if err := k8sClient.Get(ctx, appKey, app); err != nil {
 					return false
 				}
-				return app1.Status.Health.Status == "Healthy" && app1.Status.Sync.Status == "Synced"
+
+				// Get the health and sync status from the Application's status
+				healthStatus, _, _ := unstructured.NestedString(app.Object, "status", "health", "status")
+				syncStatus, _, _ := unstructured.NestedString(app.Object, "status", "sync", "status")
+
+				return healthStatus == "Healthy" && syncStatus == "Synced"
 			}).Should(BeTrue())
 		})
 	})

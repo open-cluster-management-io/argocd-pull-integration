@@ -20,7 +20,9 @@ import (
 	"context"
 
 	"k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -28,7 +30,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
-	argov1alpha1 "github.com/argoproj/argo-cd/v2/pkg/apis/application/v1alpha1"
 	clusterv1 "open-cluster-management.io/api/cluster/v1"
 	workv1 "open-cluster-management.io/api/work/v1"
 )
@@ -50,6 +51,8 @@ const (
 	LabelKeyAppSet = "apps.open-cluster-management.io/application-set"
 	// Application and ManifestWork label that enables the pull controller to wrap the Application in ManifestWork payload
 	LabelKeyPull = "apps.open-cluster-management.io/pull-to-ocm-managed-cluster"
+	// ResourcesFinalizerName is the finalizer value which we inject to finalize deletion of an application
+	ResourcesFinalizerName string = "resources-finalizer.argocd.argoproj.io"
 )
 
 // ApplicationReconciler reconciles a Application object
@@ -65,25 +68,32 @@ type ApplicationReconciler struct {
 // ApplicationPredicateFunctions defines which Application this controller should wrap inside ManifestWork's payload
 var ApplicationPredicateFunctions = predicate.Funcs{
 	UpdateFunc: func(e event.UpdateEvent) bool {
-		newApp := e.ObjectNew.(*argov1alpha1.Application)
-		return containsValidPullLabel(newApp.Labels) && containsValidPullAnnotation(*newApp)
-
+		newObj := e.ObjectNew.(*unstructured.Unstructured)
+		return containsValidPullLabel(newObj.GetLabels()) &&
+			containsValidPullAnnotation(newObj.GetAnnotations())
 	},
 	CreateFunc: func(e event.CreateEvent) bool {
-		app := e.Object.(*argov1alpha1.Application)
-		return containsValidPullLabel(app.Labels) && containsValidPullAnnotation(*app)
+		obj := e.Object.(*unstructured.Unstructured)
+		return containsValidPullLabel(obj.GetLabels()) &&
+			containsValidPullAnnotation(obj.GetAnnotations())
 	},
-
 	DeleteFunc: func(e event.DeleteEvent) bool {
-		app := e.Object.(*argov1alpha1.Application)
-		return containsValidPullLabel(app.Labels) && containsValidPullAnnotation(*app)
+		obj := e.Object.(*unstructured.Unstructured)
+		return containsValidPullLabel(obj.GetLabels()) &&
+			containsValidPullAnnotation(obj.GetAnnotations())
 	},
 }
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *ApplicationReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	applicationGVK := &unstructured.Unstructured{}
+	applicationGVK.SetGroupVersionKind(schema.GroupVersionKind{
+		Group:   "argoproj.io",
+		Version: "v1alpha1",
+		Kind:    "Application",
+	})
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&argov1alpha1.Application{}).
+		For(applicationGVK).
 		WithEventFilter(ApplicationPredicateFunctions).
 		Complete(r)
 }
@@ -93,22 +103,27 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	log := log.FromContext(ctx)
 	log.Info("reconciling Application...")
 
-	var application argov1alpha1.Application
-	if err := r.Get(ctx, req.NamespacedName, &application); err != nil {
+	application := &unstructured.Unstructured{}
+	application.SetGroupVersionKind(schema.GroupVersionKind{
+		Group:   "argoproj.io",
+		Version: "v1alpha1",
+		Kind:    "Application",
+	})
+	if err := r.Get(ctx, req.NamespacedName, application); err != nil {
 		log.Error(err, "unable to fetch Application")
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
 	managedClusterName := application.GetAnnotations()[AnnotationKeyOCMManagedCluster]
-	mwName := generateManifestWorkName(application)
+	mwName := generateManifestWorkName(application.GetName(), application.GetUID())
 
 	// the Application is being deleted, find the ManifestWork and delete that as well
-	if application.ObjectMeta.DeletionTimestamp != nil {
+	if application.GetDeletionTimestamp() != nil {
 		// remove finalizer from Application but do not 'commit' yet
-		if len(application.Finalizers) != 0 {
+		if len(application.GetFinalizers()) != 0 {
 			f := application.GetFinalizers()
 			for i := 0; i < len(f); i++ {
-				if f[i] == argov1alpha1.ResourcesFinalizerName {
+				if f[i] == ResourcesFinalizerName {
 					f = append(f[:i], f[i+1:]...)
 					i--
 				}
@@ -121,7 +136,7 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		err := r.Get(ctx, types.NamespacedName{Name: mwName, Namespace: managedClusterName}, &work)
 		if errors.IsNotFound(err) {
 			// already deleted ManifestWork, commit the Application finalizer removal
-			if err = r.Update(ctx, &application); err != nil {
+			if err = r.Update(ctx, application); err != nil {
 				log.Error(err, "unable to update Application")
 				return ctrl.Result{}, err
 			}
@@ -136,7 +151,7 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		}
 
 		// deleted ManifestWork, commit the Application finalizer removal
-		if err := r.Update(ctx, &application); err != nil {
+		if err := r.Update(ctx, application); err != nil {
 			log.Error(err, "unable to update Application")
 			return ctrl.Result{}, err
 		}
