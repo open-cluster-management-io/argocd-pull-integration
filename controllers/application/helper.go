@@ -21,10 +21,17 @@ import (
 	"strings"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
 
-	argov1alpha1 "github.com/argoproj/argo-cd/v2/pkg/apis/application/v1alpha1"
 	workv1 "open-cluster-management.io/api/work/v1"
+)
+
+const (
+	// KubernetesInternalAPIServerAddr is address of the k8s API server when accessing internal to the cluster
+	KubernetesInternalAPIServerAddr = "https://kubernetes.default.svc"
 )
 
 func containsValidPullLabel(labels map[string]string) bool {
@@ -43,8 +50,7 @@ func containsValidPullLabel(labels map[string]string) bool {
 	return false
 }
 
-func containsValidPullAnnotation(application argov1alpha1.Application) bool {
-	annos := application.GetAnnotations()
+func containsValidPullAnnotation(annos map[string]string) bool {
 	if len(annos) == 0 {
 		return false
 	}
@@ -69,38 +75,34 @@ func containsValidManifestWorkHubApplicationAnnotations(manifestWork workv1.Mani
 // 1) Annotation specified custom namespace
 // 2) Application's namespace value
 // 3) Fallsback to 'argocd'
-func generateAppNamespace(application argov1alpha1.Application) string {
-	annos := application.GetAnnotations()
+func generateAppNamespace(namespace string, annos map[string]string) string {
 	appNamespace := annos[AnnotationKeyOCMManagedClusterAppNamespace]
 	if len(appNamespace) > 0 {
 		return appNamespace
 	}
-
-	appNamespace = application.GetNamespace()
+	appNamespace = namespace
 	if len(appNamespace) > 0 {
 		return appNamespace
 	}
-
-	return "argocd" // TODO find the constant value from the argo API for this field
+	return "argocd"
 }
 
 // generateManifestWorkName returns the ManifestWork name for a given application.
 // It uses the Application name with the suffix of the first 5 characters of the UID
-func generateManifestWorkName(application argov1alpha1.Application) string {
-	return application.Name + "-" + string(application.UID)[0:5]
+func generateManifestWorkName(name string, uid types.UID) string {
+	return name + "-" + string(uid)[0:5]
 }
 
 // getAppSetOwnerName returns the applicationSet resource name if the given application contains an applicationSet owner
-func getAppSetOwnerName(application argov1alpha1.Application) string {
-	if len(application.OwnerReferences) > 0 {
-		for _, ownerRef := range application.OwnerReferences {
+func getAppSetOwnerName(ownerRefs []metav1.OwnerReference) string {
+	if len(ownerRefs) > 0 {
+		for _, ownerRef := range ownerRefs {
 			if strings.EqualFold(ownerRef.APIVersion, "argoproj.io/v1alpha1") &&
-				strings.EqualFold(ownerRef.Kind, "ApplicationSet") { // TODO find the constant value from the argo appset API for this field
+				strings.EqualFold(ownerRef.Kind, "ApplicationSet") {
 				return ownerRef.Name
 			}
 		}
 	}
-
 	return ""
 }
 
@@ -108,49 +110,52 @@ func getAppSetOwnerName(application argov1alpha1.Application) string {
 // - reset the meta
 // - set the namespace value
 // - ensures the Application Destination is set to in-cluster resource deployment
-func prepareApplicationForWorkPayload(application argov1alpha1.Application) argov1alpha1.Application {
-	newApp := &argov1alpha1.Application{
-		TypeMeta: metav1.TypeMeta{
-			APIVersion: argov1alpha1.SchemeGroupVersion.String(),
-			Kind:       argov1alpha1.ApplicationSchemaGroupVersionKind.Kind,
-		},
-		ObjectMeta: metav1.ObjectMeta{
-			Namespace:  generateAppNamespace(application),
-			Name:       application.Name,
-			Finalizers: application.Finalizers,
-		},
-		Spec: application.Spec,
+func prepareApplicationForWorkPayload(application *unstructured.Unstructured) unstructured.Unstructured {
+	newApp := &unstructured.Unstructured{}
+	newApp.SetGroupVersionKind(schema.GroupVersionKind{
+		Group:   "argoproj.io",
+		Version: "v1alpha1",
+		Kind:    "Application",
+	})
+	newApp.SetNamespace(generateAppNamespace(application.GetNamespace(), application.GetAnnotations()))
+	newApp.SetName(application.GetName())
+	newApp.SetFinalizers(application.GetFinalizers())
+	if newSpec, ok := application.Object["spec"].(map[string]interface{}); ok {
+		if destination, ok := newSpec["destination"].(map[string]interface{}); ok {
+			// empty the name
+			destination["name"] = ""
+			// always set for in-cluster destination
+			destination["server"] = KubernetesInternalAPIServerAddr
+		}
+		newApp.Object["spec"] = newSpec
 	}
 
-	// empty the name
-	newApp.Spec.Destination.Name = ""
-	// always set for in-cluster destination
-	newApp.Spec.Destination.Server = argov1alpha1.KubernetesInternalAPIServerAddr
 	// copy the labels except for the ocm specific labels
-	newApp.Labels = make(map[string]string)
-	if len(application.Labels) > 0 {
-		for key, value := range application.Labels {
-			if key != LabelKeyPull {
-				newApp.Labels[key] = value
-			}
+	labels := make(map[string]string)
+	for key, value := range application.GetLabels() {
+		if key != LabelKeyPull {
+			labels[key] = value
 		}
 	}
-	// copy the annos except for the ocm specific annos
-	newApp.Annotations = make(map[string]string)
-	if len(application.Annotations) > 0 {
-		for key, value := range application.Annotations {
-			if key != AnnotationKeyOCMManagedCluster &&
-				key != AnnotationKeyOCMManagedClusterAppNamespace &&
-				key != AnnotationKeyAppSkipReconcile {
-				newApp.Annotations[key] = value
-			}
-		}
-	}
+	newApp.SetLabels(labels)
 
-	appSetOwnerName := getAppSetOwnerName(application)
+	// copy the annos except for the ocm specific annos
+	annotations := make(map[string]string)
+	for key, value := range application.GetAnnotations() {
+		if key != AnnotationKeyOCMManagedCluster &&
+			key != AnnotationKeyOCMManagedClusterAppNamespace &&
+			key != AnnotationKeyAppSkipReconcile {
+			annotations[key] = value
+		}
+	}
+	newApp.SetAnnotations(annotations)
+
+	appSetOwnerName := getAppSetOwnerName(application.GetOwnerReferences())
 	if appSetOwnerName != "" {
-		newApp.Labels[LabelKeyAppSet] = strconv.FormatBool(true)
-		newApp.Annotations[AnnotationKeyAppSet] = application.Namespace + "/" + appSetOwnerName
+		labels[LabelKeyAppSet] = strconv.FormatBool(true)
+		annotations[AnnotationKeyAppSet] = application.GetNamespace() + "/" + appSetOwnerName
+		newApp.SetLabels(labels)
+		newApp.SetAnnotations(annotations)
 	}
 
 	return *newApp
@@ -160,25 +165,25 @@ func prepareApplicationForWorkPayload(application argov1alpha1.Application) argo
 // With the status sync feedback of Application's health status and sync status.
 // The Application payload Spec Destination values are modified so that the Application is always performing in-cluster resource deployments.
 // If the Application is generated from an ApplicationSet, custom label and annotation are inserted.
-func generateManifestWork(name, namespace string, application argov1alpha1.Application) *workv1.ManifestWork {
+func generateManifestWork(name, namespace string, app *unstructured.Unstructured) *workv1.ManifestWork {
 	workLabels := map[string]string{
 		LabelKeyPull: strconv.FormatBool(true),
 	}
 
 	workAnnos := map[string]string{
-		AnnotationKeyHubApplicationNamespace: application.Namespace,
-		AnnotationKeyHubApplicationName:      application.Name,
+		AnnotationKeyHubApplicationNamespace: app.GetNamespace(),
+		AnnotationKeyHubApplicationName:      app.GetName(),
 	}
 
-	appSetOwnerName := getAppSetOwnerName(application)
+	appSetOwnerName := getAppSetOwnerName(app.GetOwnerReferences())
 	if appSetOwnerName != "" {
 		workLabels[LabelKeyAppSet] = strconv.FormatBool(true)
-		workAnnos[AnnotationKeyAppSet] = application.Namespace + "/" + appSetOwnerName
+		workAnnos[AnnotationKeyAppSet] = app.GetNamespace() + "/" + appSetOwnerName
 	}
 
-	application = prepareApplicationForWorkPayload(application)
+	application := prepareApplicationForWorkPayload(app)
 
-	return &workv1.ManifestWork{ // TODO use OCM API helper to generate manifest work.
+	return &workv1.ManifestWork{
 		TypeMeta: metav1.TypeMeta{},
 		ObjectMeta: metav1.ObjectMeta{
 			Name:        name,
@@ -193,10 +198,10 @@ func generateManifestWork(name, namespace string, application argov1alpha1.Appli
 			ManifestConfigs: []workv1.ManifestConfigOption{
 				{
 					ResourceIdentifier: workv1.ResourceIdentifier{
-						Group:     argov1alpha1.SchemeGroupVersion.Group,
-						Resource:  "applications", // TODO find the constant value from the argo API for this field
-						Namespace: application.Namespace,
-						Name:      application.Name,
+						Group:     "argoproj.io",
+						Resource:  "applications",
+						Namespace: application.GetNamespace(),
+						Name:      application.GetName(),
 					},
 					FeedbackRules: []workv1.FeedbackRule{
 						{Type: workv1.JSONPathsType, JsonPaths: []workv1.JsonPath{{Name: "healthStatus", Path: ".status.health.status"}}},

@@ -19,7 +19,9 @@ package application
 import (
 	"context"
 
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -27,8 +29,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
-	argov1alpha1 "github.com/argoproj/argo-cd/v2/pkg/apis/application/v1alpha1"
-	"github.com/argoproj/gitops-engine/pkg/health"
 	workv1 "open-cluster-management.io/api/work/v1"
 )
 
@@ -67,6 +67,7 @@ func (re *ApplicationStatusReconciler) SetupWithManager(mgr ctrl.Manager) error 
 }
 
 // Reconcile populates the Application status based on the associated ManifestWork's status feedback
+// Reconcile populates the Application status based on the associated ManifestWork's status feedback
 func (r *ApplicationStatusReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := log.FromContext(ctx)
 	log.Info("reconciling Application for status update..")
@@ -78,48 +79,62 @@ func (r *ApplicationStatusReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
+	// Check if the ManifestWork is being deleted
 	if manifestWork.ObjectMeta.DeletionTimestamp != nil {
 		return ctrl.Result{}, nil
 	}
 
+	// Extract status feedbacks for healthStatus and syncStatus
 	resourceManifests := manifestWork.Status.ResourceStatus.Manifests
-
 	healthStatus := ""
 	syncStatus := ""
 	if len(resourceManifests) > 0 {
 		statusFeedbacks := resourceManifests[0].StatusFeedbacks.Values
-		if len(statusFeedbacks) > 0 {
-			for _, statusFeedback := range statusFeedbacks {
-				if statusFeedback.Name == "healthStatus" {
-					healthStatus = *statusFeedback.Value.String
-				}
-				if statusFeedback.Name == "syncStatus" {
-					syncStatus = *statusFeedback.Value.String
-				}
+		for _, statusFeedback := range statusFeedbacks {
+			if statusFeedback.Name == "healthStatus" {
+				healthStatus = *statusFeedback.Value.String
+			}
+			if statusFeedback.Name == "syncStatus" {
+				syncStatus = *statusFeedback.Value.String
 			}
 		}
 	}
 
+	// If status values are missing, log and return
 	if len(healthStatus) == 0 || len(syncStatus) == 0 {
 		log.Info("healthStatus and syncStatus are both not in ManifestWork status feedback yet")
 		return ctrl.Result{}, nil
 	}
 
+	// Retrieve Application reference from annotations
 	applicationNamespace := manifestWork.Annotations[AnnotationKeyHubApplicationNamespace]
 	applicationName := manifestWork.Annotations[AnnotationKeyHubApplicationName]
 
-	application := argov1alpha1.Application{}
-	if err := r.Get(ctx, types.NamespacedName{Namespace: applicationNamespace, Name: applicationName}, &application); err != nil {
+	// Fetch the Application as an unstructured object
+	application := &unstructured.Unstructured{}
+	application.SetGroupVersionKind(schema.GroupVersionKind{
+		Group:   "argoproj.io",
+		Version: "v1alpha1",
+		Kind:    "Application",
+	})
+
+	if err := r.Get(ctx, types.NamespacedName{Namespace: applicationNamespace, Name: applicationName}, application); err != nil {
 		log.Error(err, "unable to fetch Application")
 		return ctrl.Result{}, err
 	}
 
-	application.Status.Sync.Status = argov1alpha1.SyncStatusCode(syncStatus)
-	application.Status.Health.Status = health.HealthStatusCode(healthStatus)
-	log.Info("updating Application status with ManifestWork status feedbacks")
+	// Update the Application's status fields dynamically
+	if err := unstructured.SetNestedField(application.Object, healthStatus, "status", "health", "status"); err != nil {
+		log.Error(err, "unable to set healthStatus in Application status")
+		return ctrl.Result{}, err
+	}
+	if err := unstructured.SetNestedField(application.Object, syncStatus, "status", "sync", "status"); err != nil {
+		log.Error(err, "unable to set syncStatus in Application status")
+		return ctrl.Result{}, err
+	}
 
-	err := r.Client.Update(ctx, &application)
-	if err != nil {
+	log.Info("updating Application status with ManifestWork status feedbacks")
+	if err := r.Client.Update(ctx, application); err != nil {
 		log.Error(err, "unable to update Application")
 		return ctrl.Result{}, err
 	}

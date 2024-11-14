@@ -18,16 +18,19 @@ package application
 
 import (
 	"reflect"
+	"strconv"
 	"testing"
 
-	argov1alpha1 "github.com/argoproj/argo-cd/v2/pkg/apis/application/v1alpha1"
-	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
 	workv1 "open-cluster-management.io/api/work/v1"
 )
 
 func Test_containsValidPullLabel(t *testing.T) {
 	type args struct {
-		application argov1alpha1.Application
+		labels map[string]string
 	}
 	tests := []struct {
 		name string
@@ -37,69 +40,49 @@ func Test_containsValidPullLabel(t *testing.T) {
 		{
 			name: "valid pull label",
 			args: args{
-				argov1alpha1.Application{
-					ObjectMeta: v1.ObjectMeta{
-						Labels: map[string]string{LabelKeyPull: "true"},
-					},
-				},
+				map[string]string{LabelKeyPull: "true"},
 			},
 			want: true,
 		},
 		{
 			name: "valid pull label case",
 			args: args{
-				argov1alpha1.Application{
-					ObjectMeta: v1.ObjectMeta{
-						Labels: map[string]string{LabelKeyPull: "True"},
-					},
-				},
+				map[string]string{LabelKeyPull: "True"},
 			},
 			want: true,
 		},
 		{
 			name: "invalid pull label",
 			args: args{
-				argov1alpha1.Application{
-					ObjectMeta: v1.ObjectMeta{
-						Labels: map[string]string{LabelKeyPull + "a": "true"},
-					},
-				},
+				map[string]string{LabelKeyPull + "a": "true"},
 			},
 			want: false,
 		},
 		{
 			name: "empty value",
 			args: args{
-				argov1alpha1.Application{
-					ObjectMeta: v1.ObjectMeta{
-						Labels: map[string]string{LabelKeyPull: ""},
-					},
-				},
+				map[string]string{LabelKeyPull: ""},
 			},
 			want: false,
 		},
 		{
 			name: "false value",
 			args: args{
-				argov1alpha1.Application{
-					ObjectMeta: v1.ObjectMeta{
-						Labels: map[string]string{LabelKeyPull: "false"},
-					},
-				},
+				map[string]string{LabelKeyPull: "false"},
 			},
 			want: false,
 		},
 		{
 			name: "no pull label",
 			args: args{
-				argov1alpha1.Application{},
+				map[string]string{},
 			},
 			want: false,
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := containsValidPullLabel(tt.args.application.Labels); got != tt.want {
+			if got := containsValidPullLabel(tt.args.labels); got != tt.want {
 				t.Errorf("containsValidPullLabel() = %v, want %v", got, tt.want)
 			}
 		})
@@ -108,7 +91,7 @@ func Test_containsValidPullLabel(t *testing.T) {
 
 func Test_containsValidPullAnnotation(t *testing.T) {
 	type args struct {
-		application argov1alpha1.Application
+		annos map[string]string
 	}
 	tests := []struct {
 		name string
@@ -118,47 +101,35 @@ func Test_containsValidPullAnnotation(t *testing.T) {
 		{
 			name: "valid pull annotation",
 			args: args{
-				argov1alpha1.Application{
-					ObjectMeta: v1.ObjectMeta{
-						Annotations: map[string]string{AnnotationKeyOCMManagedCluster: "cluster1"},
-					},
-				},
+				map[string]string{AnnotationKeyOCMManagedCluster: "cluster1"},
 			},
 			want: true,
 		},
 		{
 			name: "invalid pull annotation",
 			args: args{
-				argov1alpha1.Application{
-					ObjectMeta: v1.ObjectMeta{
-						Annotations: map[string]string{AnnotationKeyOCMManagedCluster + "a": "cluster1"},
-					},
-				},
+				map[string]string{AnnotationKeyOCMManagedCluster + "a": "cluster1"},
 			},
 			want: false,
 		},
 		{
 			name: "empty value",
 			args: args{
-				argov1alpha1.Application{
-					ObjectMeta: v1.ObjectMeta{
-						Annotations: map[string]string{AnnotationKeyOCMManagedCluster: ""},
-					},
-				},
+				map[string]string{AnnotationKeyOCMManagedCluster: ""},
 			},
 			want: false,
 		},
 		{
 			name: "no pull annotation",
 			args: args{
-				argov1alpha1.Application{},
+				map[string]string{},
 			},
 			want: false,
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := containsValidPullAnnotation(tt.args.application); got != tt.want {
+			if got := containsValidPullAnnotation(tt.args.annos); got != tt.want {
 				t.Errorf("containsValidPullAnnotation() = %v, want %v", got, tt.want)
 			}
 		})
@@ -178,7 +149,7 @@ func Test_containsValidManifestWorkHubApplicationAnnotations(t *testing.T) {
 			name: "valid application annotations",
 			args: args{
 				workv1.ManifestWork{
-					ObjectMeta: v1.ObjectMeta{
+					ObjectMeta: metav1.ObjectMeta{
 						Annotations: map[string]string{
 							AnnotationKeyHubApplicationNamespace: "namespace1",
 							AnnotationKeyHubApplicationName:      "app-name1",
@@ -192,7 +163,7 @@ func Test_containsValidManifestWorkHubApplicationAnnotations(t *testing.T) {
 			name: "missing application namespace annotation",
 			args: args{
 				workv1.ManifestWork{
-					ObjectMeta: v1.ObjectMeta{
+					ObjectMeta: metav1.ObjectMeta{
 						Annotations: map[string]string{
 							AnnotationKeyHubApplicationName: "app-name1",
 						},
@@ -205,7 +176,7 @@ func Test_containsValidManifestWorkHubApplicationAnnotations(t *testing.T) {
 			name: "missing application name annotation",
 			args: args{
 				workv1.ManifestWork{
-					ObjectMeta: v1.ObjectMeta{
+					ObjectMeta: metav1.ObjectMeta{
 						Annotations: map[string]string{
 							AnnotationKeyHubApplicationNamespace: "namespace1",
 						},
@@ -218,7 +189,7 @@ func Test_containsValidManifestWorkHubApplicationAnnotations(t *testing.T) {
 			name: "empty value",
 			args: args{
 				workv1.ManifestWork{
-					ObjectMeta: v1.ObjectMeta{
+					ObjectMeta: metav1.ObjectMeta{
 						Annotations: map[string]string{
 							AnnotationKeyHubApplicationNamespace: "",
 							AnnotationKeyHubApplicationName:      "",
@@ -247,7 +218,8 @@ func Test_containsValidManifestWorkHubApplicationAnnotations(t *testing.T) {
 
 func Test_generateAppNamespace(t *testing.T) {
 	type args struct {
-		application argov1alpha1.Application
+		namespace string
+		annos     map[string]string
 	}
 	tests := []struct {
 		name string
@@ -257,48 +229,34 @@ func Test_generateAppNamespace(t *testing.T) {
 		{
 			name: "annotation only",
 			args: args{
-				argov1alpha1.Application{
-					ObjectMeta: v1.ObjectMeta{
-						Annotations: map[string]string{AnnotationKeyOCMManagedClusterAppNamespace: "gitops"},
-					},
-				},
+				annos: map[string]string{AnnotationKeyOCMManagedClusterAppNamespace: "gitops"},
 			},
 			want: "gitops",
 		},
 		{
 			name: "annotation and namespace",
 			args: args{
-				argov1alpha1.Application{
-					ObjectMeta: v1.ObjectMeta{
-						Annotations: map[string]string{AnnotationKeyOCMManagedClusterAppNamespace: "gitops"},
-						Namespace:   "argocd",
-					},
-				},
+				annos:     map[string]string{AnnotationKeyOCMManagedClusterAppNamespace: "gitops"},
+				namespace: "argocd",
 			},
 			want: "gitops",
 		},
 		{
 			name: "namespace only",
 			args: args{
-				argov1alpha1.Application{
-					ObjectMeta: v1.ObjectMeta{
-						Namespace: "gitops",
-					},
-				},
+				namespace: "gitops",
 			},
 			want: "gitops",
 		},
 		{
 			name: "annotation and namespace not found",
-			args: args{
-				argov1alpha1.Application{},
-			},
+			args: args{},
 			want: "argocd",
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := generateAppNamespace(tt.args.application); got != tt.want {
+			if got := generateAppNamespace(tt.args.namespace, tt.args.annos); got != tt.want {
 				t.Errorf("generateAppNamespace() = %v, want %v", got, tt.want)
 			}
 		})
@@ -307,7 +265,8 @@ func Test_generateAppNamespace(t *testing.T) {
 
 func Test_generateManifestWorkName(t *testing.T) {
 	type args struct {
-		application argov1alpha1.Application
+		name string
+		uid  types.UID
 	}
 	tests := []struct {
 		name string
@@ -317,19 +276,15 @@ func Test_generateManifestWorkName(t *testing.T) {
 		{
 			name: "generate name",
 			args: args{
-				argov1alpha1.Application{
-					ObjectMeta: v1.ObjectMeta{
-						Name: "app1",
-						UID:  "abcdefghijk",
-					},
-				},
+				name: "app1",
+				uid:  "abcdefghijk",
 			},
 			want: "app1-abcde",
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := generateManifestWorkName(tt.args.application); got != tt.want {
+			if got := generateManifestWorkName(tt.args.name, tt.args.uid); got != tt.want {
 				t.Errorf("generateManifestWorkName() = %v, want %v", got, tt.want)
 			}
 		})
@@ -337,80 +292,112 @@ func Test_generateManifestWorkName(t *testing.T) {
 }
 
 func Test_prepareApplicationForWorkPayload(t *testing.T) {
+	// Create an unstructured application object as input
+	app := &unstructured.Unstructured{}
+	app.SetGroupVersionKind(schema.GroupVersionKind{
+		Group:   "argoproj.io",
+		Version: "v1alpha1",
+		Kind:    "Application",
+	})
+	app.SetName("app1")
+	app.SetNamespace("argocd")
+	app.SetFinalizers([]string{"app1-final"})
+	app.SetAnnotations(map[string]string{
+		AnnotationKeyAppSkipReconcile: "true",
+	})
+	app.Object["spec"] = map[string]interface{}{
+		"destination": map[string]interface{}{
+			"name":   "originalName",
+			"server": "originalServer",
+		},
+	}
+
 	type args struct {
-		application argov1alpha1.Application
+		application *unstructured.Unstructured
 	}
 	tests := []struct {
 		name string
 		args args
-		want argov1alpha1.Application
+		want *unstructured.Unstructured
 	}{
 		{
 			name: "modified app",
-			args: args{
-				argov1alpha1.Application{
-					ObjectMeta: v1.ObjectMeta{
-						Name:        "app1",
-						Finalizers:  []string{"app1-final"},
-						Annotations: map[string]string{AnnotationKeyAppSkipReconcile: "true"},
+			args: args{application: app},
+			want: func() *unstructured.Unstructured {
+				expectedApp := &unstructured.Unstructured{}
+				expectedApp.SetGroupVersionKind(schema.GroupVersionKind{
+					Group:   "argoproj.io",
+					Version: "v1alpha1",
+					Kind:    "Application",
+				})
+				expectedApp.SetName("app1")
+				expectedApp.SetNamespace("argocd")
+				expectedApp.SetFinalizers([]string{"app1-final"})
+				expectedApp.SetLabels(map[string]string{
+					// Add expected labels here except for LabelKeyPull
+				})
+				expectedApp.SetAnnotations(map[string]string{
+					// Add expected annotations here except for AnnotationKeyAppSkipReconcile
+				})
+				expectedApp.Object["spec"] = map[string]interface{}{
+					"destination": map[string]interface{}{
+						"name":   "",
+						"server": KubernetesInternalAPIServerAddr,
 					},
-				},
-			},
-			want: argov1alpha1.Application{
-				ObjectMeta: v1.ObjectMeta{
-					Name:       "app1",
-					Namespace:  "argocd",
-					Finalizers: []string{"app1-final"},
-				},
-				Spec: argov1alpha1.ApplicationSpec{
-					Destination: argov1alpha1.ApplicationDestination{
-						Name:   "",
-						Server: "https://kubernetes.default.svc",
-					},
-				},
-			},
+				}
+				return expectedApp
+			}(),
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := prepareApplicationForWorkPayload(tt.args.application)
-			if !reflect.DeepEqual(got.Name, tt.want.Name) {
-				t.Errorf("prepareApplicationForWorkPayload() Name = %v, want %v", got.Name, tt.want.Name)
+			if got.GetName() != tt.want.GetName() {
+				t.Errorf("prepareApplicationForWorkPayload() Name = %v, want %v", got.GetName(), tt.want.GetName())
 			}
-			if !reflect.DeepEqual(got.Finalizers, tt.want.Finalizers) {
-				t.Errorf("prepareApplicationForWorkPayload() Finalizers = %v, want %v", got.Finalizers, tt.want.Finalizers)
+			if got.GetNamespace() != tt.want.GetNamespace() {
+				t.Errorf("prepareApplicationForWorkPayload() Namespace = %v, want %v", got.GetNamespace(), tt.want.GetNamespace())
 			}
-			if !reflect.DeepEqual(got.Namespace, tt.want.Namespace) {
-				t.Errorf("prepareApplicationForWorkPayload() Namespace = %v, want %v", got.Namespace, tt.want.Namespace)
+			if !reflect.DeepEqual(got.GetFinalizers(), tt.want.GetFinalizers()) {
+				t.Errorf("prepareApplicationForWorkPayload() Finalizers = %v, want %v", got.GetFinalizers(), tt.want.GetFinalizers())
 			}
-			if !reflect.DeepEqual(got.Spec.Destination, tt.want.Spec.Destination) {
-				t.Errorf("prepareApplicationForWorkPayload() Destination = %v, want %v", got.Spec.Destination, tt.want.Spec.Destination)
+			gotSpec, _, _ := unstructured.NestedMap(got.Object, "spec")
+			wantSpec, _, _ := unstructured.NestedMap(tt.want.Object, "spec")
+			if !reflect.DeepEqual(gotSpec, wantSpec) {
+				t.Errorf("prepareApplicationForWorkPayload() Spec = %v, want %v", gotSpec, wantSpec)
 			}
-			if got.Annotations[AnnotationKeyAppSkipReconcile] != "" {
-				t.Errorf("prepareApplicationForWorkPayload() contains skip reconcile annotation set to true")
+			if !reflect.DeepEqual(got.GetLabels(), tt.want.GetLabels()) {
+				t.Errorf("prepareApplicationForWorkPayload() Labels = %v, want %v", got.GetLabels(), tt.want.GetLabels())
+			}
+			if !reflect.DeepEqual(got.GetAnnotations(), tt.want.GetAnnotations()) {
+				t.Errorf("prepareApplicationForWorkPayload() Annotations = %v, want %v", got.GetAnnotations(), tt.want.GetAnnotations())
 			}
 		})
 	}
 }
 
 func Test_generateManifestWork(t *testing.T) {
-	app := argov1alpha1.Application{
-		ObjectMeta: v1.ObjectMeta{
-			Name:      "app1",
-			Namespace: "argocd",
-			OwnerReferences: []v1.OwnerReference{{
-				APIVersion: "argoproj.io/v1alpha1",
-				Kind:       "ApplicationSet",
-				Name:       "appset1",
-			}},
-			Finalizers: []string{argov1alpha1.ResourcesFinalizerName},
+	app := &unstructured.Unstructured{}
+	app.SetGroupVersionKind(schema.GroupVersionKind{
+		Group:   "argoproj.io",
+		Version: "v1alpha1",
+		Kind:    "Application",
+	})
+	app.SetName("app1")
+	app.SetNamespace("argocd")
+	app.SetOwnerReferences([]metav1.OwnerReference{
+		{
+			APIVersion: "argoproj.io/v1alpha1",
+			Kind:       "ApplicationSet",
+			Name:       "appset1",
 		},
-	}
+	})
+	app.SetFinalizers([]string{ResourcesFinalizerName})
 
 	type args struct {
-		name        string
-		namespace   string
-		application argov1alpha1.Application
+		name      string
+		namespace string
+		app       *unstructured.Unstructured
 	}
 	type results struct {
 		workLabel map[string]string
@@ -424,14 +411,14 @@ func Test_generateManifestWork(t *testing.T) {
 		{
 			name: "sunny",
 			args: args{
-				name:        "app1-abcde",
-				namespace:   "cluster1",
-				application: app,
+				name:      "app1-abcde",
+				namespace: "cluster1",
+				app:       app,
 			},
 			want: results{
 				workLabel: map[string]string{
-					LabelKeyPull:   "true",
-					LabelKeyAppSet: "true",
+					LabelKeyPull:   strconv.FormatBool(true),
+					LabelKeyAppSet: strconv.FormatBool(true),
 				},
 				workAnno: map[string]string{
 					AnnotationKeyAppSet:                  "argocd/appset1",
@@ -443,12 +430,14 @@ func Test_generateManifestWork(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := generateManifestWork(tt.args.name, tt.args.namespace, tt.args.application)
-			if !reflect.DeepEqual(got.Annotations, tt.want.workAnno) {
-				t.Errorf("generateManifestWork() = %v, want %v", got.Annotations, tt.want.workAnno)
+			got := generateManifestWork(tt.args.name, tt.args.namespace, tt.args.app)
+			// Compare annotations
+			if !reflect.DeepEqual(got.ObjectMeta.Annotations, tt.want.workAnno) {
+				t.Errorf("generateManifestWork() annotations = %v, want %v", got.ObjectMeta.Annotations, tt.want.workAnno)
 			}
-			if !reflect.DeepEqual(got.Labels, tt.want.workLabel) {
-				t.Errorf("generateManifestWork() = %v, want %v", got.Labels, tt.want.workLabel)
+			// Compare labels
+			if !reflect.DeepEqual(got.ObjectMeta.Labels, tt.want.workLabel) {
+				t.Errorf("generateManifestWork() labels = %v, want %v", got.ObjectMeta.Labels, tt.want.workLabel)
 			}
 		})
 	}

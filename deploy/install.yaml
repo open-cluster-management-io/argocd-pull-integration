@@ -111,6 +111,7 @@ spec:
         command:
         - /manager
         image: quay.io/open-cluster-management/argocd-pull-integration:latest
+        imagePullPolicy: IfNotPresent
         resources:
           limits:
             cpu: 500m
