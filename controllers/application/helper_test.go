@@ -311,6 +311,24 @@ func Test_prepareApplicationForWorkPayload(t *testing.T) {
 			"server": "originalServer",
 		},
 	}
+	app.Object["operation"] = map[string]interface{}{
+		"info": []interface{}{
+			map[string]interface{}{
+				"name":  "Reason",
+				"value": "ApplicationSet RollingSync triggered a sync of this Application resource.",
+			},
+		},
+		"initiatedBy": map[string]interface{}{
+			"automated": true,
+			"username":  "applicationset-controller",
+		},
+		"retry": map[string]interface{}{},
+		"sync": map[string]interface{}{
+			"syncOptions": []interface{}{
+				"CreateNamespace=true",
+			},
+		},
+	}
 
 	type args struct {
 		application *unstructured.Unstructured
@@ -345,6 +363,24 @@ func Test_prepareApplicationForWorkPayload(t *testing.T) {
 						"server": KubernetesInternalAPIServerAddr,
 					},
 				}
+				expectedApp.Object["operation"] = map[string]interface{}{
+					"info": []interface{}{
+						map[string]interface{}{
+							"name":  "Reason",
+							"value": "ApplicationSet RollingSync triggered a sync of this Application resource.",
+						},
+					},
+					"initiatedBy": map[string]interface{}{
+						"automated": true,
+						"username":  "applicationset-controller",
+					},
+					"retry": map[string]interface{}{},
+					"sync": map[string]interface{}{
+						"syncOptions": []interface{}{
+							"CreateNamespace=true",
+						},
+					},
+				}
 				return expectedApp
 			}(),
 		},
@@ -365,6 +401,11 @@ func Test_prepareApplicationForWorkPayload(t *testing.T) {
 			wantSpec, _, _ := unstructured.NestedMap(tt.want.Object, "spec")
 			if !reflect.DeepEqual(gotSpec, wantSpec) {
 				t.Errorf("prepareApplicationForWorkPayload() Spec = %v, want %v", gotSpec, wantSpec)
+			}
+			gotOperation, _, _ := unstructured.NestedMap(got.Object, "operation")
+			wantOperation, _, _ := unstructured.NestedMap(tt.want.Object, "operation")
+			if !reflect.DeepEqual(gotOperation, wantOperation) {
+				t.Errorf("prepareApplicationForWorkPayload() Operation = %v, want %v", gotOperation, wantOperation)
 			}
 			if !reflect.DeepEqual(got.GetLabels(), tt.want.GetLabels()) {
 				t.Errorf("prepareApplicationForWorkPayload() Labels = %v, want %v", got.GetLabels(), tt.want.GetLabels())
