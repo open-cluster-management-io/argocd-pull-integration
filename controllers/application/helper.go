@@ -110,6 +110,7 @@ func getAppSetOwnerName(ownerRefs []metav1.OwnerReference) string {
 // - reset the meta
 // - set the namespace value
 // - ensures the Application Destination is set to in-cluster resource deployment
+// - ensures the operation field is also set if present
 func prepareApplicationForWorkPayload(application *unstructured.Unstructured) unstructured.Unstructured {
 	newApp := &unstructured.Unstructured{}
 	newApp.SetGroupVersionKind(schema.GroupVersionKind{
@@ -120,6 +121,13 @@ func prepareApplicationForWorkPayload(application *unstructured.Unstructured) un
 	newApp.SetNamespace(generateAppNamespace(application.GetNamespace(), application.GetAnnotations()))
 	newApp.SetName(application.GetName())
 	newApp.SetFinalizers(application.GetFinalizers())
+
+	// set the operation field
+	if operation, ok := application.Object["operation"].(map[string]interface{}); ok {
+		newApp.Object["operation"] = operation
+	}
+
+	// set the spec field
 	if newSpec, ok := application.Object["spec"].(map[string]interface{}); ok {
 		if destination, ok := newSpec["destination"].(map[string]interface{}); ok {
 			// empty the name
