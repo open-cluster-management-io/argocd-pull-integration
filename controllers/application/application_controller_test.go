@@ -149,6 +149,42 @@ var _ = Describe("Application Pull controller", func() {
 				return oldRv != mw.GetResourceVersion()
 			}).Should(BeTrue())
 
+			By("Updating the Application with operation")
+			operation := map[string]interface{}{
+				"info": []interface{}{
+					map[string]interface{}{
+						"name":  "Reason",
+						"value": "ApplicationSet RollingSync triggered a sync of this Application resource.",
+					},
+				},
+				"initiatedBy": map[string]interface{}{
+					"automated": true,
+					"username":  "applicationset-controller",
+				},
+				"retry": map[string]interface{}{},
+				"sync": map[string]interface{}{
+					"syncOptions": []interface{}{
+						"CreateNamespace=true",
+					},
+				},
+			}
+			Expect(unstructured.SetNestedField(app2.Object, operation, "operation")).Should(Succeed())
+			Expect(k8sClient.Update(ctx, app2)).Should(Succeed())
+			Eventually(func() bool {
+				updatedApp := &unstructured.Unstructured{}
+				updatedApp.SetGroupVersionKind(schema.GroupVersionKind{
+					Group:   "argoproj.io",
+					Version: "v1alpha1",
+					Kind:    "Application",
+				})
+				err := k8sClient.Get(ctx, appKey2, updatedApp)
+				if err != nil {
+					return false
+				}
+				_, ok := updatedApp.Object["operation"]
+				return !ok
+			}).Should(BeTrue())
+
 			By("Deleting the Application")
 			Expect(k8sClient.Delete(ctx, app2)).Should(Succeed())
 			Eventually(func() bool {

@@ -215,7 +215,18 @@ func generateManifestWork(name, namespace string, app *unstructured.Unstructured
 						{Type: workv1.JSONPathsType, JsonPaths: []workv1.JsonPath{{Name: "healthStatus", Path: ".status.health.status"}}},
 						{Type: workv1.JSONPathsType, JsonPaths: []workv1.JsonPath{{Name: "syncStatus", Path: ".status.sync.status"}}},
 					},
-					UpdateStrategy: &workv1.UpdateStrategy{Type: workv1.UpdateStrategyTypeUpdate},
+					UpdateStrategy: &workv1.UpdateStrategy{
+						Type: workv1.UpdateStrategyTypeServerSideApply,
+						ServerSideApply: &workv1.ServerSideApplyConfig{
+							Force: true,
+							IgnoreFields: []workv1.IgnoreField{
+								{
+									Condition: workv1.IgnoreFieldsConditionOnSpokeChange,
+									JSONPaths: []string{".operation"},
+								},
+							},
+						},
+					},
 				},
 			},
 		},
