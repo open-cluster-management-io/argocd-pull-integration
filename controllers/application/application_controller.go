@@ -192,6 +192,15 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return ctrl.Result{}, err
 	}
 
+	// remove the operation field from application if it exists
+	if _, ok := application.Object["operation"]; ok {
+		delete(application.Object, "operation")
+		if err := r.Update(ctx, application); err != nil {
+			log.Error(err, "unable to remove operation from Application")
+			return ctrl.Result{}, err
+		}
+	}
+
 	log.Info("done reconciling Application")
 
 	return ctrl.Result{}, nil

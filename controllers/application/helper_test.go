@@ -480,6 +480,10 @@ func Test_generateManifestWork(t *testing.T) {
 			if !reflect.DeepEqual(got.ObjectMeta.Labels, tt.want.workLabel) {
 				t.Errorf("generateManifestWork() labels = %v, want %v", got.ObjectMeta.Labels, tt.want.workLabel)
 			}
+			// Compare operation
+			if got.Spec.ManifestConfigs[0].UpdateStrategy.ServerSideApply.IgnoreFields[0].JSONPaths[0] != ".operation" {
+				t.Errorf("generateManifestWork() does not contain operation ignore field")
+			}
 		})
 	}
 }
