@@ -1,10 +1,9 @@
 module open-cluster-management.io/argocd-pull-integration
 
 go 1.24.0
-
 require (
 	github.com/onsi/ginkgo/v2 v2.23.3
-	github.com/onsi/gomega v1.36.3
+	github.com/onsi/gomega v1.37.0
 	k8s.io/api v0.32.3
 	k8s.io/apimachinery v0.32.3
 	k8s.io/client-go v0.32.3
