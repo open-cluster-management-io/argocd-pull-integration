@@ -1,0 +1,94 @@
+name: ChartUpload
+
+permissions:
+  contents: read
+
+on:
+  release:
+    types: [published]
+
+env:
+  CHART_VERSION_FILE_PATH: ./charts/argocd-pull-integration/Chart.yaml
+
+jobs:
+  env:
+    name: prepare release env
+    runs-on: ubuntu-latest
+    steps:
+      - name: checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - name: get release version
+        id: get_release_version
+        run: |
+          RELEASE_VERSION=${GITHUB_REF#refs/tags/}
+          echo "::set-output name=TRIMMED_RELEASE_VERSION::${RELEASE_VERSION#v}"
+    outputs:
+      TRIMMED_RELEASE_VERSION: ${{ steps.get_release_version.outputs.TRIMMED_RELEASE_VERSION }}
+  increase-chart-version:
+    runs-on: ubuntu-latest
+    needs: [ env ]
+    steps:
+      - name: checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: calculate next version
+        id: calculate_next_version
+        run: |
+          echo "Current version: $CURRENT_VERSION"
+          # Extract the major and minor version components
+          MAJOR=$(echo $CURRENT_VERSION | cut -d '.' -f 1)
+          MINOR=$(echo $CURRENT_VERSION | cut -d '.' -f 2)
+          # Increment the minor version
+          NEXT_MINOR=$((MINOR + 1))
+          # Construct the next version
+          NEXT_VERSION="$MAJOR.$NEXT_MINOR.0"
+          echo "next_version=$NEXT_VERSION" >> $GITHUB_OUTPUT
+        env:
+          CURRENT_VERSION: ${{ needs.env.outputs.TRIMMED_RELEASE_VERSION }}
+
+      - name: update chart version file
+        id: update_chart_version
+        run: |
+          echo "Updating chart version file from $CURRENT_VERSION to $NEXT_VERSION"
+          sed -i "s/version: $CURRENT_VERSION/version: $NEXT_VERSION/" ${{ env.CHART_VERSION_FILE_PATH }}
+          git diff
+          FILE_CHANGED=$(git diff --exit-code --quiet && echo false || echo true)
+          echo "Chart version file changed: $FILE_CHANGED"
+          echo "file_changed=$FILE_CHANGED" >> $GITHUB_OUTPUT
+        env:
+          CURRENT_VERSION: ${{ needs.env.outputs.TRIMMED_RELEASE_VERSION }}
+          NEXT_VERSION: ${{ steps.calculate_next_version.outputs.next_version }}
+
+      - name: check if pull request already exists
+        id: check_pull_request
+        if : steps.update_chart_version.outputs.file_changed == 'true'
+        run: |
+          gh pr list --state open > pr_list.txt
+          cat pr_list.txt
+          PR_EXIST=$(grep -q "Update chart version to ${{ steps.calculate_next_version.outputs.next_version }}" pr_list.txt && echo true || echo false)
+          echo "pr_exists=$PR_EXIST" >> $GITHUB_OUTPUT
+          echo "Pull request for version ${{ steps.calculate_next_version.outputs.next_version }} exists: $PR_EXIST"
+          rm -rf pr_list.txt
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: create pull request
+        if: steps.update_chart_version.outputs.file_changed == 'true' && steps.check_pull_request.outputs.pr_exists != 'true'
+        uses: peter-evans/create-pull-request@v7
+        with:
+          # use OCM bot token to bypass "GitHub Actions is not permitted to create or approve pull requests."
+          token: ${{ secrets.OCM_BOT_PAT }}
+          commit-message: |
+            Update chart version to ${{ steps.calculate_next_version.outputs.next_version }}
+          title: ":seedling: Update chart version to ${{ steps.calculate_next_version.outputs.next_version }}"
+          body: "Automatically updating chart version to ${{ steps.calculate_next_version.outputs.next_version }}"
+          branch: update-chart-version-${{ steps.calculate_next_version.outputs.next_version }}
+          signoff: true
+          base: main
+        env:
+          CURRENT_VERSION: ${{ needs.env.outputs.TRIMMED_RELEASE_VERSION }}
+          NEXT_VERSION: ${{ steps.calculate_next_version.outputs.next_version }}
