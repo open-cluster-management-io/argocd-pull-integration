@@ -1,3 +1,8 @@
+argocd:
+  image:
+    repository: quay.io/argoproj/argocd
+    tag: v2.13.1
+
 # Image registry
 registry: quay.io/open-cluster-management
 
@@ -5,7 +10,7 @@ registry: quay.io/open-cluster-management
 image: argocd-pull-integration
 
 # Image tag
-tag: latest
+tag: v0.15.0
 
 # Number of replicas
 replicas: 1
