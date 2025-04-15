@@ -8,13 +8,8 @@ env:
   # Common versions
   GO_VERSION: '1.24'
   GO_REQUIRED_MIN_VERSION: ''
-  GOPATH: '/home/runner/work/argocd-pull-integration/go'
   GITHUB_REF: ${{ github.ref }}
-  CHART_NAME: 'argocd-pull-integration'
-
-defaults:
-  run:
-    working-directory: go/src/open-cluster-management.io/argocd-pull-integration
+  CHART_NAME: argocd-pull-integration
 
 jobs:
   env:
