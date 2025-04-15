@@ -10,7 +10,7 @@ registry: quay.io/open-cluster-management
 image: argocd-pull-integration
 
 # Image tag
-tag: v0.16.0
+tag: v0.17.0
 
 # Number of replicas
 replicas: 1
