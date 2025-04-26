@@ -214,6 +214,9 @@ func generateManifestWork(name, namespace string, app *unstructured.Unstructured
 					FeedbackRules: []workv1.FeedbackRule{
 						{Type: workv1.JSONPathsType, JsonPaths: []workv1.JsonPath{{Name: "healthStatus", Path: ".status.health.status"}}},
 						{Type: workv1.JSONPathsType, JsonPaths: []workv1.JsonPath{{Name: "syncStatus", Path: ".status.sync.status"}}},
+						{Type: workv1.JSONPathsType, JsonPaths: []workv1.JsonPath{{Name: "operationStateStartedAt", Path: ".status.operationState.startedAt"}}},
+						{Type: workv1.JSONPathsType, JsonPaths: []workv1.JsonPath{{Name: "operationStatePhase", Path: ".status.operationState.phase"}}},
+						{Type: workv1.JSONPathsType, JsonPaths: []workv1.JsonPath{{Name: "syncRevision", Path: ".status.sync.revision"}}},
 					},
 					UpdateStrategy: &workv1.UpdateStrategy{
 						Type: workv1.UpdateStrategyTypeServerSideApply,

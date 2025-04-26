@@ -18,11 +18,13 @@ package application
 
 import (
 	"context"
+	"time"
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/util/retry"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/event"
@@ -88,6 +90,9 @@ func (r *ApplicationStatusReconciler) Reconcile(ctx context.Context, req ctrl.Re
 	resourceManifests := manifestWork.Status.ResourceStatus.Manifests
 	healthStatus := ""
 	syncStatus := ""
+	operationStatePhase := ""
+	operationStateStartedAt := ""
+	syncRevision := ""
 	if len(resourceManifests) > 0 {
 		statusFeedbacks := resourceManifests[0].StatusFeedbacks.Values
 		for _, statusFeedback := range statusFeedbacks {
@@ -97,7 +102,19 @@ func (r *ApplicationStatusReconciler) Reconcile(ctx context.Context, req ctrl.Re
 			if statusFeedback.Name == "syncStatus" {
 				syncStatus = *statusFeedback.Value.String
 			}
+			if statusFeedback.Name == "operationStatePhase" {
+				operationStatePhase = *statusFeedback.Value.String
+			}
+			if statusFeedback.Name == "operationStateStartedAt" {
+				operationStateStartedAt = *statusFeedback.Value.String
+			}
+			if statusFeedback.Name == "syncRevision" {
+				syncRevision = *statusFeedback.Value.String
+			}
 		}
+	}
+	if operationStateStartedAt == "" {
+		operationStateStartedAt = time.Now().UTC().Format(time.RFC3339)
 	}
 
 	// If status values are missing, log and return
@@ -124,6 +141,21 @@ func (r *ApplicationStatusReconciler) Reconcile(ctx context.Context, req ctrl.Re
 	}
 
 	// Update the Application's status fields dynamically
+	if healthStatus == "Healthy" {
+		// If the health status is Healthy then simulate Progressing first then set to Healthy for ApplicationSet controller
+		if err := unstructured.SetNestedField(application.Object, "Progressing", "status", "health", "status"); err != nil {
+			log.Error(err, "unable to set healthStatus in Application status")
+			return ctrl.Result{}, err
+		}
+
+		log.Info("updating Application health status to Progressing")
+		if err := retry.RetryOnConflict(retry.DefaultBackoff, func() error {
+			return r.Client.Update(ctx, application)
+		}); err != nil {
+			log.Error(err, "unable to update Application")
+			return ctrl.Result{}, err
+		}
+	}
 	if err := unstructured.SetNestedField(application.Object, healthStatus, "status", "health", "status"); err != nil {
 		log.Error(err, "unable to set healthStatus in Application status")
 		return ctrl.Result{}, err
@@ -132,9 +164,28 @@ func (r *ApplicationStatusReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		log.Error(err, "unable to set syncStatus in Application status")
 		return ctrl.Result{}, err
 	}
+	if err := unstructured.SetNestedField(application.Object, operationStatePhase, "status", "operationState", "phase"); err != nil {
+		log.Error(err, "unable to set syncStatus in Application status")
+		return ctrl.Result{}, err
+	}
+	if err := unstructured.SetNestedField(application.Object, operationStateStartedAt, "status", "operationState", "startedAt"); err != nil {
+		log.Error(err, "unable to set syncStatus in Application status")
+		return ctrl.Result{}, err
+	}
+	if err := unstructured.SetNestedField(application.Object, map[string]interface{}{}, "status", "operationState", "operation"); err != nil {
+		// Application required field, set it to empty object
+		log.Error(err, "unable to set operation field in Application status")
+		return ctrl.Result{}, err
+	}
+	if err := unstructured.SetNestedField(application.Object, syncRevision, "status", "sync", "revision"); err != nil {
+		log.Error(err, "unable to set syncStatus in Application status")
+		return ctrl.Result{}, err
+	}
 
 	log.Info("updating Application status with ManifestWork status feedbacks")
-	if err := r.Client.Update(ctx, application); err != nil {
+	if err := retry.RetryOnConflict(retry.DefaultBackoff, func() error {
+		return r.Client.Update(ctx, application)
+	}); err != nil {
 		log.Error(err, "unable to update Application")
 		return ctrl.Result{}, err
 	}

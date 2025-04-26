@@ -86,6 +86,9 @@ var _ = Describe("Application Pull controller", func() {
 			By("Updating the ManifestWork status")
 			healthy := "Healthy"
 			synced := "Synced"
+			operationStateStartedAt := "2025-04-24T19:53:38Z"
+			operationStatePhase := "Succeeded"
+			syncRevision := "4773b9f1f8fd425f84174c338012771c4e9a989c"
 			work1.Status = workv1.ManifestWorkStatus{
 				ResourceStatus: workv1.ManifestResourceStatus{
 					Manifests: []workv1.ManifestCondition{{
@@ -100,6 +103,9 @@ var _ = Describe("Application Pull controller", func() {
 							Values: []workv1.FeedbackValue{
 								{Name: "healthStatus", Value: workv1.FieldValue{String: &healthy, Type: "String"}},
 								{Name: "syncStatus", Value: workv1.FieldValue{String: &synced, Type: "String"}},
+								{Name: "operationStateStartedAt", Value: workv1.FieldValue{String: &operationStateStartedAt, Type: "String"}},
+								{Name: "operationStatePhase", Value: workv1.FieldValue{String: &operationStatePhase, Type: "String"}},
+								{Name: "syncRevision", Value: workv1.FieldValue{String: &syncRevision, Type: "String"}},
 							}},
 					}},
 				},
@@ -121,8 +127,14 @@ var _ = Describe("Application Pull controller", func() {
 				// Get the health and sync status from the Application's status
 				healthStatus, _, _ := unstructured.NestedString(app.Object, "status", "health", "status")
 				syncStatus, _, _ := unstructured.NestedString(app.Object, "status", "sync", "status")
+				operationStateStartedAtStatus, _, _ := unstructured.NestedString(app.Object, "status", "operationState", "startedAt")
+				operationStatePhaseStatus, _, _ := unstructured.NestedString(app.Object, "status", "operationState", "phase")
+				syncRevisionStatus, _, _ := unstructured.NestedString(app.Object, "status", "sync", "revision")
 
-				return healthStatus == "Healthy" && syncStatus == "Synced"
+				return healthStatus == "Healthy" && syncStatus == "Synced" &&
+					operationStateStartedAtStatus == "2025-04-24T19:53:38Z" &&
+					operationStatePhaseStatus == "Succeeded" &&
+					syncRevisionStatus == "4773b9f1f8fd425f84174c338012771c4e9a989c"
 			}).Should(BeTrue())
 		})
 	})
