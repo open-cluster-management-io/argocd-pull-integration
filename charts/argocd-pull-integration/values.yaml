@@ -1,7 +1,7 @@
 argocd:
   image:
     repository: quay.io/argoproj/argocd
-    tag: v2.13.1
+    tag: v3.0.6
 
 # Image registry
 registry: quay.io/open-cluster-management
