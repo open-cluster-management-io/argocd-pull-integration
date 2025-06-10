@@ -6828,6 +6828,8 @@ spec:
             labels:
               app.kubernetes.io/name: argocd-secret
               app.kubernetes.io/part-of: argocd
+          data:
+            server.secretkey: Zm9v # dummy key workaround for https://github.com/argoproj/argo-cd/issues/22931
           type: Opaque
         - apiVersion: v1
           kind: ConfigMap
