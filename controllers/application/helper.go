@@ -225,7 +225,7 @@ func generateManifestWork(name, namespace string, app *unstructured.Unstructured
 							IgnoreFields: []workv1.IgnoreField{
 								{
 									Condition: workv1.IgnoreFieldsConditionOnSpokeChange,
-									JSONPaths: []string{".operation"},
+									JSONPaths: []string{".operation", ".metadata.annotations[\"argocd.argoproj.io/refresh\"]"},
 								},
 							},
 						},

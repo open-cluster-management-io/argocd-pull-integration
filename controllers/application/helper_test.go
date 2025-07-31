@@ -480,9 +480,11 @@ func Test_generateManifestWork(t *testing.T) {
 			if !reflect.DeepEqual(got.ObjectMeta.Labels, tt.want.workLabel) {
 				t.Errorf("generateManifestWork() labels = %v, want %v", got.ObjectMeta.Labels, tt.want.workLabel)
 			}
-			// Compare operation
-			if got.Spec.ManifestConfigs[0].UpdateStrategy.ServerSideApply.IgnoreFields[0].JSONPaths[0] != ".operation" {
-				t.Errorf("generateManifestWork() does not contain operation ignore field")
+			ignoreFields := got.Spec.ManifestConfigs[0].UpdateStrategy.ServerSideApply.IgnoreFields[0].JSONPaths
+			expectedIgnoreFields := []string{".operation", ".metadata.annotations[\"argocd.argoproj.io/refresh\"]"}
+			if len(ignoreFields) != 2 || ignoreFields[0] != expectedIgnoreFields[0] || ignoreFields[1] != expectedIgnoreFields[1] {
+				t.Errorf("generateManifestWork() ignore fields = %v, want %v", ignoreFields, expectedIgnoreFields)
+
 			}
 		})
 	}
