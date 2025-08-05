@@ -1,146 +1,311 @@
-# ArgoCD Application Pull Controller
-[ArgoCD](https://argo-cd.readthedocs.io/en/stable/) Application controller that uses the hub-spoke pattern or pull model mechanism for decentralized resource delivery to the remote clusters.
-By using the [Open Cluster Management (OCM)](https://open-cluster-management.io/) APIs and components, 
-the ArgoCD Applications will be pull from the multi-cluster control plane hub cluster down to 
-the registered OCM managed clusters.
+# ArgoCD Pull Integration Controller
 
-**Note:** The primary goal of this project is to migrate existing native OCM application delivery `AppSubscription` users to ArgoCD.
-The pull model described in this project might not be suited in every situation,
-it is designed with the existing OCM AppSubscription users in mind to match their existing use cases.
+An ArgoCD controller that implements a pull-based application delivery model for multi-cluster environments using [Open Cluster Management (OCM)](https://open-cluster-management.io/).
 
-## Description
-The current ArgoCD resource delivery is primarily pushing resources from a centralized cluster to the remote/managed clusters.
+## Overview
 
+Traditional ArgoCD deployments use a "push" model where applications are pushed from a centralized ArgoCD instance to remote clusters. This controller enables a "pull" model where remote clusters pull their applications from a central hub, providing better scalability, security, and resilience.
+
+### Push Model vs Pull Model
+
+**Traditional Push Model:**
 ![push model](assets/push.png)
 
-By using this controller, users can have a pull model resource delivery mechanism.
-
+**Pull Model with OCM:**
 ![pull model](assets/pull.png)
 
-The pull model may offers some advantages over the existing push model:
-- Scalability: hub-spoke pattern may offers better scalability.
-- Security: cluster credentials doesn't have to be stored in a centralized environment may enhance security.
-- It may reduce the impact of a single point of centralized failure.
+### Key Benefits
 
-This ArgoCD pull model controller on the Hub cluster will create [ManifestWork](https://open-cluster-management.io/concepts/manifestwork/) objects wrapping Application objects as payload.
-The OCM agent on the Managed cluster will see the ManifestWork on the Hub cluster and pull the Application down.
+- **Scalability**: Hub-spoke architecture scales better than centralized push
+- **Security**: Cluster credentials are not stored in a centralized location
+- **Resilience**: Reduces single point of failure impact
+- **Decentralization**: Remote clusters maintain autonomy while staying synchronized
 
-## Dependencies
-- The Open Cluster Management (OCM) multi-cluster environment needs to be setup. See [OCM website](https://open-cluster-management.io/) on how to setup the environment.
-- In this pull model, OCM will provide the cluster inventory and ability to deliver workload to the remote/managed clusters.
-- Hub cluster and remote/managed clusters need to have ArgoCD Application installed. See [ArgoCD website](https://argo-cd.readthedocs.io/en/stable/getting_started/) for more details.
+## Architecture
 
-## Getting Started
-1. Setup an OCM Hub cluster and registered an OCM Managed cluster. See [Open Cluster Management Quick Start](https://open-cluster-management.io/getting-started/quick-start/) for more details.
+The controller consists of three main components:
 
-2. Install ArgoCD on both clusters. See [ArgoCD website](https://argo-cd.readthedocs.io/en/stable/getting_started/) for more details.
+1. **Application Controller**: Watches ArgoCD Applications with specific labels/annotations and wraps them in OCM ManifestWork objects
+2. **Application Status Controller**: Syncs application status from ManifestWork back to the hub Application
+3. **Cluster Controller**: Manages cluster registration and ArgoCD cluster secrets
 
-3. On the Hub cluster, scale down the Application controller:
+### How It Works
+
+1. ArgoCD Applications on the hub cluster are marked with special labels and annotations
+2. The Application Controller detects these applications and creates ManifestWork objects containing the Application as payload
+3. OCM agents on managed clusters pull these ManifestWork objects and apply the contained Applications
+4. Application status is synced back from managed clusters to the hub through ManifestWork status feedback
+
+## Prerequisites
+
+### Required Components
+
+- **Open Cluster Management (OCM)**: Multi-cluster environment with hub and managed clusters
+  - See [OCM Quick Start](https://open-cluster-management.io/getting-started/quick-start/) for setup instructions
+- **ArgoCD**: Installed on both hub and managed clusters
+  - See [ArgoCD Getting Started](https://argo-cd.readthedocs.io/en/stable/getting_started/) for installation
+
+### Required Annotations and Labels
+
+For Applications to be processed by the pull controller, they must include:
+
+```yaml
+metadata:
+  labels:
+    apps.open-cluster-management.io/pull-to-ocm-managed-cluster: "true"
+  annotations:
+    argocd.argoproj.io/skip-reconcile: "true"
+    apps.open-cluster-management.io/ocm-managed-cluster: "<target-cluster-name>"
 ```
+
+- `pull-to-ocm-managed-cluster` label: Enables the pull controller to process this Application
+- `skip-reconcile` annotation: Prevents the Application from reconciling on the hub cluster
+- `ocm-managed-cluster` annotation: Specifies which managed cluster should receive this Application
+
+## Installation
+
+### Step 1: Prepare Hub Cluster
+
+**Option A: Disable Hub ArgoCD Application Controller (Legacy Method)**
+
+If your ArgoCD version doesn't support the `skip-reconcile` annotation:
+
+```bash
 kubectl -n argocd scale statefulset/argocd-application-controller --replicas 0
 ```
-**Note** This step is not necssary if the ArgoCD instance you are using contains the feature: 
-https://argo-cd.readthedocs.io/en/latest/user-guide/skip_reconcile/
 
-4. Install the Pull controller:
-```
+**Option B: Use Skip Reconcile (Recommended)**
+
+For ArgoCD versions that support [skip reconcile](https://argo-cd.readthedocs.io/en/latest/user-guide/skip_reconcile/), no additional configuration needed.
+
+### Step 2: Install the Pull Controller
+
+```bash
 kubectl apply -f https://raw.githubusercontent.com/open-cluster-management-io/argocd-pull-integration/main/deploy/install.yaml
 ```
 
-5. If your controller starts successfully, you should see:
+### Step 3: Verify Installation
+
+Check that the controller is running:
+
+```bash
+kubectl -n open-cluster-management get deploy | grep pull
 ```
-$ kubectl -n open-cluster-management get deploy | grep pull
+
+Expected output:
+```
 argocd-pull-integration-controller-manager   1/1     1            1           106s
 ```
 
-6. On the Hub cluster, create an ArgoCD cluster secret that represent the managed cluster. This step can be automated with [OCM auto import controller](https://github.com/open-cluster-management-io/multicloud-integrations/).
-**Note** replace the `cluster-name` with the registered managed cluster name.
-```
+## Configuration
+
+### Hub Cluster Setup
+
+#### Create ArgoCD Cluster Secret
+
+Create an ArgoCD cluster secret representing each managed cluster:
+
+```bash
 cat <<EOF | kubectl apply -f -
 apiVersion: v1
 kind: Secret
 metadata:
-  name: <cluster-name>-secret # cluster1-secret
+  name: <cluster-name>-secret
   namespace: argocd
   labels:
     argocd.argoproj.io/secret-type: cluster
 type: Opaque
 stringData:
-  name: <cluster-name> # cluster1
-  server: https://<cluster-name>-control-plane:6443 # https://cluster1-control-plane:6443
+  name: <cluster-name>
+  server: https://<cluster-name>-control-plane:6443
 EOF
 ```
 
-7. On the Hub cluster, apply the manifests in `example/hub`:
-```
+**Note**: Replace `<cluster-name>` with your actual managed cluster name. This step can be automated using the [OCM auto import controller](https://github.com/open-cluster-management-io/multicloud-integrations/).
+
+#### Apply Hub Configuration
+
+```bash
 kubectl apply -f example/hub
 ```
 
-8. On the Managed cluster, apply the manifests in `example/managed`:
-```
+### Managed Cluster Setup
+
+Apply the required RBAC and configuration on each managed cluster:
+
+```bash
 kubectl apply -f example/managed
 ```
 
-9. On the Hub cluster, apply the `guestbook-app-set` manifest:
-```
+## Quick Start Example
+
+Deploy the included guestbook example to test the pull integration:
+
+### Deploy ApplicationSet
+
+```bash
 kubectl apply -f example/guestbook-app-set.yaml
 ```
-**Note** The Application template inside the ApplicationSet must contain the following content:
-```
+
+### Verify ApplicationSet Template
+
+The ApplicationSet template must include the required annotations and labels:
+
+```yaml
+spec:
+  template:
+    metadata:
       labels:
-        apps.open-cluster-management.io/pull-to-ocm-managed-cluster: 'true'
+        apps.open-cluster-management.io/pull-to-ocm-managed-cluster: "true"
       annotations:
-        argocd.argoproj.io/skip-reconcile: 'true'
-        apps.open-cluster-management.io/ocm-managed-cluster: '{{name}}'
+        argocd.argoproj.io/skip-reconcile: "true"
+        apps.open-cluster-management.io/ocm-managed-cluster: "{{name}}"
 ```
-The label allows the pull model controller to select the Application for processing.
 
-The `skip-reconcile` annotation is to prevent the Application from reconciling on the Hub cluster.
+## Verification
 
-The `ocm-managed-cluster` annotation is for the ApplicationSet to generate multiple Application based on each cluster generator targets.
+### Check ApplicationSet Creation
 
-10. When this guestbook ApplicationSet reconciles, it will generate an Application for the registered ManagedCluster. For example:
+```bash
+kubectl -n argocd get appset
 ```
-$ kubectl -n argocd get appset
+
+Expected output:
+```
 NAME            AGE
 guestbook-app   84s
-$ kubectl -n argocd get app
-NAME                     SYNC STATUS   HEALTH STATUS
-cluster1-guestbook-app     
 ```
 
-11. On the Hub cluster, the pull controller will wrap the Application with a ManifestWork. For example:
+### Check Generated Applications
+
+```bash
+kubectl -n argocd get app
 ```
-$ kubectl -n cluster1 get manifestwork
+
+Expected output:
+```
+NAME                     SYNC STATUS   HEALTH STATUS
+cluster1-guestbook-app   Unknown       Unknown
+```
+
+### Check ManifestWork Creation
+
+On the hub cluster, verify ManifestWork objects are created:
+
+```bash
+kubectl -n <cluster-name> get manifestwork
+```
+
+Expected output:
+```
 NAME                          AGE
 cluster1-guestbook-app-d0e5   2m41s
 ```
 
-12. On the Managed cluster, you should see the Application is pulled down successfully. For example:
+### Check Application on Managed Cluster
+
+On the managed cluster, verify the Application is pulled and deployed:
+
+```bash
+kubectl -n argocd get app
 ```
-$ kubectl -n argocd get app
+
+Expected output:
+```
 NAME                     SYNC STATUS   HEALTH STATUS
 cluster1-guestbook-app   Synced        Healthy
-$ kubectl -n guestbook get deploy
+```
+
+### Check Application Resources
+
+Verify the actual application resources are deployed:
+
+```bash
+kubectl -n guestbook get deploy
+```
+
+Expected output:
+```
 NAME           READY   UP-TO-DATE   AVAILABLE   AGE
 guestbook-ui   1/1     1            1           7m36s
 ```
 
-13. On the Hub cluster, the status controller will sync the dormant Application with the ManifestWork status feedback. For example:
+### Check Status Synchronization
+
+Back on the hub cluster, verify status is synced from the managed cluster:
+
+```bash
+kubectl -n argocd get app
 ```
-$ kubectl -n argocd get app
+
+Expected output:
+```
 NAME                     SYNC STATUS   HEALTH STATUS
 cluster1-guestbook-app   Synced        Healthy
 ```
 
-## Community, discussion, contribution, and support
+## Troubleshooting
 
-Check the [CONTRIBUTING Doc](CONTRIBUTING.md) for how to contribute to the repo.
+### Common Issues
 
-### Communication channels
+**Applications not being processed:**
+- Verify the required labels and annotations are present
+- Check that the managed cluster name in annotations matches an actual OCM managed cluster
+- Ensure the pull controller is running in the `open-cluster-management` namespace
 
-Slack channel: [#open-cluster-mgmt](https://kubernetes.slack.com/channels/open-cluster-mgmt)
+**ManifestWork not created:**
+- Check controller logs: `kubectl -n open-cluster-management logs deployment/argocd-pull-integration-controller-manager`
+- Verify OCM is properly installed and managed clusters are registered
+
+**Status not syncing back:**
+- Ensure the Application Status Controller is running
+- Check ManifestWork status feedback configuration on managed clusters
+
+### Controller Logs
+
+```bash
+kubectl -n open-cluster-management logs deployment/argocd-pull-integration-controller-manager -f
+```
+
+## Development
+
+For development setup and contribution guidelines, see the [CONTRIBUTING.md](CONTRIBUTING.md) document.
+
+### Building from Source
+
+```bash
+make build
+```
+
+### Running Tests
+
+```bash
+make test
+```
+
+### Building Container Image
+
+```bash
+make docker-build
+```
+
+## Community and Support
+
+### Communication Channels
+
+- **Slack**: [#open-cluster-mgmt](https://kubernetes.slack.com/channels/open-cluster-mgmt) on Kubernetes Slack
+- **GitHub Discussions**: Use GitHub Issues for bug reports and feature requests
+- **Mailing List**: [OCM Community](https://open-cluster-management.io/community/)
+
+### Contributing
+
+We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) for details on:
+- Code of conduct
+- Development process
+- Submitting pull requests
+- Reporting issues
 
 ## License
 
-This code is released under the Apache 2.0 license. See the file [LICENSE](LICENSE) for more information.
+This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENSE) file for details.
+
