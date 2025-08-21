@@ -1,0 +1,21 @@
+apiVersion: argoproj.io/v1beta1
+kind: ArgoCD
+metadata:
+  name: argocd
+  namespace: argocd
+spec:
+  applicationSet:
+    enabled: true
+  controller:
+    enabled: false
+  argoCDAgent:
+    principal:
+      enabled: true
+      allowedNamespaces: 
+        - "*"
+      jwtAllowGenerate: true
+      auth: "mtls:open-cluster-management:cluster:([^:]+):addon:argocd-agent"
+      logLevel: "trace"
+      image: "ghcr.io/argoproj-labs/argocd-agent/argocd-agent:latest"
+  sourceNamespaces:
+    - "*"
