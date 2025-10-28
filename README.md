@@ -1,8 +1,11 @@
 # Argo CD Pull Integration with Open Cluster Management
 
-A Kubernetes operator that enables pull-based Argo CD application delivery for multi-cluster environments using [Open Cluster Management (OCM)](https://open-cluster-management.io/). 
+A Kubernetes operator that enables pull-based [Argo CD](https://argo-cd.readthedocs.io/)
+application delivery for multi-cluster environments using
+[Open Cluster Management (OCM)](https://open-cluster-management.io/) and
+[Argo CD Agent](https://argocd-agent.readthedocs.io/).
 
-This repository provides the **advanced pull model** powered by [argocd-agent](https://argocd-agent.readthedocs.io/), delivering superior Argo CD UI integration with full application status synchronization, detailed resource health, and live state comparison. While slightly more complex to set up than the basic model, the `GitOpsCluster` custom resource automates the entire deployment process with better integration with the Argo CD core project.
+This repository provides the **advanced pull model** powered by [argocd-agent](https://argocd-agent.readthedocs.io/), delivering superior Argo CD UI integration with full application status synchronization, detailed resource health, and live state comparison. While slightly more complex to set up than the basic model, the OCM `GitOpsCluster` custom resource automates the entire deployment setup process.
 
 The **basic pull model** is also supported for simpler use cases.
 
@@ -49,7 +52,7 @@ graph LR
 6. Basic status information is reflected back through ManifestWork
 
 **For complete documentation and deployment instructions, see:**
-[https://github.com/open-cluster-management-io/ocm/tree/main/solutions/deploy-argocd-apps-pull](https://github.com/open-cluster-management-io/ocm/tree/main/solutions/deploy-argocd-apps-pull)
+[OCM Basic Pull Model Solution](https://github.com/open-cluster-management-io/ocm/tree/main/solutions/deploy-argocd-apps-pull)
 
 ### Advanced Pull Model (argocd-agent)
 
@@ -79,11 +82,11 @@ graph LR
 - **Superior Argo CD UI Integration**: Full application details, resource tree, live state, and sync status displayed perfectly in the Argo CD UI
 - **Complete Status Synchronization**: Detailed resource health, sync state, and errors reflected back to the hub in real-time
 - **Better Argo CD Core Integration**: Built on the official argocd-agent project with direct integration to Argo CD core
-- **Automated Setup via GitOpsCluster**: The `GitOpsCluster` CR automates the entire deployment process - while more advanced than the basic model, it handles all complexity
+- **Automated Setup via OCM GitOpsCluster**: The OCM `GitOpsCluster` CR automates the entire deployment process - while more advanced than the basic model, it handles all complexity
 
 **How it works:**
-1. Create a `GitOpsCluster` CR that references an OCM Placement to select target clusters
-2. The controller automatically deploys argocd-agent, configures secure gRPC communication, manages certificates, and sets up cluster registration
+1. Create a OCM `GitOpsCluster` CR that references an OCM Placement to select target clusters
+2. The controller automatically deploys OCM argocd-agent add-on, configures secure gRPC communication, manages certificates, and sets up cluster registration
 3. argocd-agent connects to hub Argo CD and synchronizes applications with **full status feedback**
 
 For detailed argocd-agent architecture and operational modes, see [argocd-agent Documentation](https://argocd-agent.readthedocs.io/).
@@ -103,15 +106,12 @@ For detailed argocd-agent architecture and operational modes, see [argocd-agent 
 | **Certificate Management** | Manual | ✅ Automated |
 | **Cluster Registration** | Manual cluster secrets | ✅ Automated via addon |
 | **Skip Reconciliation** | ✅ Uses `argocd.argoproj.io/skip-reconcile` | ✅ Agent handles reconciliation |
-| **Best For** | Simple deployments, quick starts | Full observability, automated management |
 
 ### When to Use Each Model
 
 **Use the Basic Pull Model if:**
 - You want quick setup with minimal components
 - Basic status feedback is sufficient
-- You already have Argo CD installed on managed clusters
-- You prefer manual control over Argo CD configuration
 - You're just getting started with pull-based deployments
 
 **Use the Advanced Pull Model (this repo) if:**
@@ -119,18 +119,7 @@ For detailed argocd-agent architecture and operational modes, see [argocd-agent 
 - You want automated setup and lifecycle management
 - You need detailed resource health and sync information
 - You need full Argo CD UI integration
-- You want simplified management of many clusters via `GitOpsCluster` CR
-
-## Prerequisites
-
-- **Kubernetes**: v1.11.3+ clusters (hub and managed)
-- **Open Cluster Management (OCM)**: Hub cluster with registered managed clusters
-  - See [OCM Quick Start](https://open-cluster-management.io/getting-started/quick-start/)
-- **Argo CD**: Installed on hub cluster
-  - argocd-agent will be deployed automatically to managed clusters
-- **Go**: v1.24.0+ (for building from source)
-- **Docker**: 17.03+ (for building container images)
-- **kubectl**: v1.11.3+
+- You want simplified management of many clusters via OCM `GitOpsCluster` CR
 
 ## Getting Started with Advanced Pull Model (argocd-agent)
 
@@ -151,6 +140,9 @@ helm install argocd-agent-addon ocm/argocd-agent-addon
 ```
 
 This installs the GitOpsCluster controller and creates a GitOpsCluster resource that automatically deploys argocd-agent to your managed clusters.
+
+**For complete documentation and deployment instructions, see:**
+[OCM Advanced Pull Model Argo CD Agent Solution](https://github.com/open-cluster-management-io/ocm/tree/main/solutions/argocd-agent)
 
 ### Understanding GitOpsCluster
 
@@ -181,14 +173,6 @@ spec:
 For detailed information about argocd-agent modes and configuration options, see the [argocd-agent Documentation](https://argocd-agent.readthedocs.io/).
 
 ## Development
-
-For building from source and running tests:
-
-```bash
-make build     # Build binary
-make test      # Run tests
-make install   # Install CRDs
-```
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for development guidelines.
 
