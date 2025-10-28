@@ -8,7 +8,7 @@ on:
     types: [published]
 
 env:
-  CHART_NAME: argocd-pull-integration
+  CHART_NAME: argocd-agent-addon
 
 jobs:
   env:

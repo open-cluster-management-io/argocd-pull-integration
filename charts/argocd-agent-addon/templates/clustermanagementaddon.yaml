@@ -1,0 +1,15 @@
+apiVersion: addon.open-cluster-management.io/v1alpha1
+kind: ClusterManagementAddOn
+metadata:
+  name: argocd-agent-addon
+spec:
+  addOnMeta:
+    description: Argo CD Agent Addon
+    displayName: Argo CD Agent Addon
+  supportedConfigs:
+  - group: addon.open-cluster-management.io
+    resource: addondeploymentconfigs
+  - group: addon.open-cluster-management.io
+    resource: addontemplates
+    defaultConfig:
+      name: argocd-agent-addon

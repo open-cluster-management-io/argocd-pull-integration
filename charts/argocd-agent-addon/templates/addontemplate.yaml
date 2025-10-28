@@ -1,0 +1,85 @@
+apiVersion: addon.open-cluster-management.io/v1alpha1
+kind: AddOnTemplate
+metadata:
+  name: argocd-agent-addon
+spec:
+  addonName: argocd-agent-addon
+  registration:
+    - type: CustomSigner
+      customSigner:
+        signerName: open-cluster-management.io/argocd-agent-addon
+        signingCA:
+          name: argocd-agent-ca
+          namespace: {{ .Values.controller.namespace }}
+  agentSpec:
+    workload:
+      manifests:
+        - kind: Deployment
+          apiVersion: apps/v1
+          metadata:
+            name: argocd-agent-addon
+            namespace: open-cluster-management-agent-addon
+            labels:
+              app: argocd-agent-addon
+          spec:
+            replicas: 1
+            selector:
+              matchLabels:
+                app: argocd-agent-addon
+            template:
+              metadata:
+                labels:
+                  app: argocd-agent-addon
+              spec:
+                serviceAccountName: argocd-agent-addon
+                containers:
+                  - name: argocd-agent-addon
+                    image: "{{ .Values.addonImage }}:{{ .Values.addonTag }}"
+                    imagePullPolicy: IfNotPresent
+                    securityContext:
+                      readOnlyRootFilesystem: true
+                      allowPrivilegeEscalation: false
+                      runAsNonRoot: true
+                      capabilities:
+                        drop:
+                        - ALL
+                    volumeMounts:
+                      - mountPath: /tmp
+                        name: tmp-volume
+                    command:
+                    - /manager
+                    args:
+                    - --mode=addon
+                    env:
+                      - name: ARGOCD_OPERATOR_IMAGE
+                        value: '{{`{{ARGOCD_OPERATOR_IMAGE}}`}}'
+                      - name: ARGOCD_AGENT_IMAGE
+                        value: '{{`{{ARGOCD_AGENT_IMAGE}}`}}'
+                      - name: ARGOCD_AGENT_SERVER_ADDRESS
+                        value: '{{`{{ARGOCD_AGENT_SERVER_ADDRESS}}`}}'
+                      - name: ARGOCD_AGENT_SERVER_PORT
+                        value: '{{`{{ARGOCD_AGENT_SERVER_PORT}}`}}'
+                      - name: ARGOCD_AGENT_MODE
+                        value: '{{`{{ARGOCD_AGENT_MODE}}`}}'
+                      - name: ARGOCD_AGENT_UNINSTALL
+                        value: '{{`{{ARGOCD_AGENT_UNINSTALL}}`}}'
+                volumes:
+                  - name: tmp-volume
+                    emptyDir: {}
+        - kind: ServiceAccount
+          apiVersion: v1
+          metadata:
+            name: argocd-agent-addon
+            namespace: open-cluster-management-agent-addon
+        - kind: ClusterRoleBinding
+          apiVersion: rbac.authorization.k8s.io/v1
+          metadata:
+            name: argocd-agent-addon
+          roleRef:
+            apiGroup: rbac.authorization.k8s.io
+            kind: ClusterRole
+            name: cluster-admin
+          subjects:
+            - kind: ServiceAccount
+              name: argocd-agent-addon
+              namespace: open-cluster-management-agent-addon
