@@ -17,24 +17,24 @@ Traditional Argo CD deployments use a "push" model where applications are pushed
 The basic pull model is a simpler approach that wraps Argo CD Application CRs in OCM ManifestWork objects and distributes them to managed clusters. It uses Argo CD's [skip-reconcile feature](https://argo-cd.readthedocs.io/en/latest/user-guide/skip_reconcile/) to prevent the hub from reconciling applications, allowing local Argo CD instances on managed clusters to handle reconciliation.
 
 ```mermaid
-graph TB
+graph LR
     subgraph "Hub Cluster"
-        Argo CD[Argo CD Server<br/>with skip-reconcile]
+        ArgoCD[Argo CD]
         Controller[Pull Controller]
         OCMHub[OCM Hub]
     end
     
     subgraph "Managed Cluster"
         OCMAgent[OCM Agent]
-        Argo CDLocal[Argo CD Controller]
+        ArgoCDLocal[Argo CD Controller]
         K8sResources[K8s Resources]
     end
     
-    Argo CD -->|Applications| Controller
+    ArgoCD -->|Applications| Controller
     Controller -->|wraps in ManifestWork| OCMHub
     OCMHub -->|pulls| OCMAgent
-    OCMAgent -->|applies Application CR| Argo CDLocal
-    Argo CDLocal -->|reconciles| K8sResources
+    OCMAgent -->|applies Application CR| ArgoCDLocal
+    ArgoCDLocal -->|reconciles| K8sResources
     OCMAgent -.->|basic status| OCMHub
 ```
 
@@ -54,22 +54,23 @@ graph TB
 The advanced pull model powered by [argocd-agent](https://argocd-agent.readthedocs.io/) provides multi-cluster GitOps with superior Argo CD integration. This model delivers the full Argo CD experience across all your clusters with complete status synchronization visible in the Argo CD UI.
 
 ```mermaid
-graph TB
+graph LR
     subgraph "Hub Cluster"
-        Argo CD[Argo CD Server]
+        ArgoCD[Argo CD + Argo CD Agent Principal]
         GitOpsCluster[GitOpsCluster CR]
         Controller[GitOpsCluster Controller]
     end
     
     subgraph "Managed Cluster"
-        Agent[argocd-agent]
+        ArgoCDAgent[Argo CD Agent]
         K8sResources[K8s Resources]
     end
     
     GitOpsCluster -->|automates setup| Controller
-    Controller -->|deploys via OCM| Agent
-    Agent <-->|gRPC + full status| Argo CD
-    Agent -->|reconciles| K8sResources
+    Controller -->|deploys addon via OCM| ArgoCDAgent
+    ArgoCD -->|Application CRs via gRPC| ArgoCDAgent
+    ArgoCDAgent -->|reconciles Application| K8sResources
+    ArgoCDAgent -.->|full status sync| ArgoCD
 ```
 
 **Key Benefits:**
