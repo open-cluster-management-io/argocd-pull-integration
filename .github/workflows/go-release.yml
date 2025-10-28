@@ -9,7 +9,7 @@ env:
   GO_VERSION: '1.24'
   GO_REQUIRED_MIN_VERSION: ''
   GITHUB_REF: ${{ github.ref }}
-  CHART_NAME: argocd-pull-integration
+  CHART_NAME: argocd-agent-addon
 
 jobs:
   env:

@@ -1,0 +1,6 @@
+apiVersion: v2
+name: argocd-agent-addon
+description: Argo CD Agent Addon
+type: application
+version: 0.21.0
+appVersion: "0.21.0"

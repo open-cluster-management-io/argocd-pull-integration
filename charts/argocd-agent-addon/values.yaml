@@ -1,0 +1,36 @@
+# Controller manager image
+image: quay.io/open-cluster-management/argocd-pull-integration
+tag: latest
+replicas: 1
+
+# Addon agent image (deployed to managed clusters)
+addonImage: quay.io/open-cluster-management/argocd-pull-integration
+addonTag: latest
+
+# ArgoCD operator image
+argoCDOperatorImage: quay.io/mikeshng/argocd-operator
+argoCDOperatorTag: latest
+
+# ArgoCD agent image
+argoCDAgentImage: ghcr.io/argoproj-labs/argocd-agent/argocd-agent
+argoCDAgentTag: latest
+
+# Hub ArgoCD Principal Server settings
+global:
+  argoCDOperatorNamespace: argocd-operator-system
+  argoCDNamespace: argocd
+  argoCDAgent:
+    image: ghcr.io/argoproj-labs/argocd-agent/argocd-agent
+    tag: latest
+
+# GitOpsCluster settings (will be created in argocd namespace)
+gitOpsCluster:
+  namespace: argocd
+  name: gitops-cluster
+  principalServerAddress: ""
+  principalServerPort: ""
+  mode: managed
+
+# Controller settings  
+controller:
+  namespace: argocd

@@ -1,0 +1,29 @@
+apiVersion: argoproj.io/v1beta1
+kind: ArgoCD
+metadata:
+  name: argocd
+  namespace: {{ .Values.global.argoCDNamespace }}
+spec:
+  controller:
+    enabled: false
+  argoCDAgent:
+    principal:
+      enabled: true
+      server:
+        auth: "mtls:CN=system:open-cluster-management:cluster:([^:]+):addon:argocd-agent-addon:agent:argocd-agent-addon-agent"
+        image: {{ .Values.argoCDAgentImage }}:{{ .Values.argoCDAgentTag }}
+      namespace:
+        allowedNamespaces:
+          - "*"
+        enableNamespaceCreate: true
+      resourceProxy:
+        secretName: "argocd-agent-resource-proxy-tls"
+        caSecretName: "argocd-agent-ca"
+      redis:
+        serverAddress: "argocd-redis:6379"
+        compressionType: "gzip"
+      tls:
+        secretName: "argocd-agent-principal-tls"
+        rootCASecretName: "argocd-agent-ca"
+  sourceNamespaces:
+    - "*"

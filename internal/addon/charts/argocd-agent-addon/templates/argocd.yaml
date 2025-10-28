@@ -1,0 +1,26 @@
+apiVersion: argoproj.io/v1beta1
+kind: ArgoCD
+metadata:
+  name: argocd
+  namespace: {{ .Values.global.argoCDNamespace }}
+spec:
+  server:
+    enabled: false
+  argoCDAgent:
+    agent:
+      enabled: true
+      client:
+        principalServerAddress: {{ .Values.global.argoCDAgent.serverAddress }}
+        principalServerPort: "{{ .Values.global.argoCDAgent.serverPort }}"
+        logLevel: "info"
+        logFormat: "text"
+        image: {{ .Values.global.argoCDAgent.image }}:{{ .Values.global.argoCDAgent.tag }}
+        mode: {{ .Values.global.argoCDAgent.mode }}
+        creds: "mtls:open-cluster-management:cluster:([^:]+):addon:argocd-agent"
+        keepAliveInterval: "50s"
+      tls:
+        secretName: "argocd-agent-open-cluster-management.io-argocd-agent-addon-client-cert"
+        rootCASecretName: "argocd-agent-ca"
+        insecure: false
+      redis:
+        serverAddress: "argocd-redis:6379"

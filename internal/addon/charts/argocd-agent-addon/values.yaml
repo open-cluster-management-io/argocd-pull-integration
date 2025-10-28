@@ -1,0 +1,8 @@
+global:
+  argoCDOperatorNamespace: ""
+  argoCDNamespace: ""
+  argoCDAgent:
+    image: ""
+    serverAddress: ""
+    serverPort: ""
+    mode: ""

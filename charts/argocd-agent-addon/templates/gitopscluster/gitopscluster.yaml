@@ -1,0 +1,18 @@
+apiVersion: apps.open-cluster-management.io/v1alpha1
+kind: GitOpsCluster
+metadata:
+  name: {{ .Values.gitOpsCluster.name }}
+  namespace: {{ .Values.gitOpsCluster.namespace }}
+spec:
+  placementRef:
+    apiVersion: cluster.open-cluster-management.io/v1beta1
+    kind: Placement
+    name: placement
+  argoCDAgentAddon:
+    {{- if .Values.gitOpsCluster.principalServerAddress }}
+    principalServerAddress: {{ .Values.gitOpsCluster.principalServerAddress }}
+    {{- end }}
+    {{- if .Values.gitOpsCluster.principalServerPort }}
+    principalServerPort: {{ .Values.gitOpsCluster.principalServerPort | quote }}
+    {{- end }}
+    mode: {{ .Values.gitOpsCluster.mode }}

@@ -1,311 +1,204 @@
-# ArgoCD Pull Integration Controller
+# Argo CD Pull Integration with Open Cluster Management
 
-An ArgoCD controller that implements a pull-based application delivery model for multi-cluster environments using [Open Cluster Management (OCM)](https://open-cluster-management.io/).
+A Kubernetes operator that enables pull-based Argo CD application delivery for multi-cluster environments using [Open Cluster Management (OCM)](https://open-cluster-management.io/). 
+
+This repository provides the **advanced pull model** powered by [argocd-agent](https://argocd-agent.readthedocs.io/), delivering superior Argo CD UI integration with full application status synchronization, detailed resource health, and live state comparison. While slightly more complex to set up than the basic model, the `GitOpsCluster` custom resource automates the entire deployment process with better integration with the Argo CD core project.
+
+The **basic pull model** is also supported for simpler use cases.
 
 ## Overview
 
-Traditional ArgoCD deployments use a "push" model where applications are pushed from a centralized ArgoCD instance to remote clusters. This controller enables a "pull" model where remote clusters pull their applications from a central hub, providing better scalability, security, and resilience.
+Traditional Argo CD deployments use a "push" model where applications are pushed from a centralized Argo CD instance to remote clusters. This project enables a "pull" model where remote clusters pull their applications from a central hub, providing better scalability, security, and resilience.
 
-### Push Model vs Pull Model
+## Two Deployment Models
 
-**Traditional Push Model:**
-![push model](assets/push.png)
+### Basic Pull Model
 
-**Pull Model with OCM:**
-![pull model](assets/pull.png)
+The basic pull model is a simpler approach that wraps Argo CD Application CRs in OCM ManifestWork objects and distributes them to managed clusters. It uses Argo CD's [skip-reconcile feature](https://argo-cd.readthedocs.io/en/latest/user-guide/skip_reconcile/) to prevent the hub from reconciling applications, allowing local Argo CD instances on managed clusters to handle reconciliation.
 
-### Key Benefits
+```mermaid
+graph TB
+    subgraph "Hub Cluster"
+        Argo CD[Argo CD Server<br/>with skip-reconcile]
+        Controller[Pull Controller]
+        OCMHub[OCM Hub]
+    end
+    
+    subgraph "Managed Cluster"
+        OCMAgent[OCM Agent]
+        Argo CDLocal[Argo CD Controller]
+        K8sResources[K8s Resources]
+    end
+    
+    Argo CD -->|Applications| Controller
+    Controller -->|wraps in ManifestWork| OCMHub
+    OCMHub -->|pulls| OCMAgent
+    OCMAgent -->|applies Application CR| Argo CDLocal
+    Argo CDLocal -->|reconciles| K8sResources
+    OCMAgent -.->|basic status| OCMHub
+```
 
-- **Scalability**: Hub-spoke architecture scales better than centralized push
-- **Security**: Cluster credentials are not stored in a centralized location
-- **Resilience**: Reduces single point of failure impact
-- **Decentralization**: Remote clusters maintain autonomy while staying synchronized
+**How it works:**
+1. Argo CD Applications on the hub are marked with `apps.open-cluster-management.io/pull-to-ocm-managed-cluster: "true"` label
+2. Applications include the [`argocd.argoproj.io/skip-reconcile: "true"`](https://argo-cd.readthedocs.io/en/latest/user-guide/skip_reconcile/) annotation to prevent hub-side reconciliation
+3. A controller wraps these Applications in ManifestWork objects
+4. OCM agents pull the ManifestWork and apply the Application CRs to managed clusters
+5. Local Argo CD instances reconcile the applications
+6. Basic status information is reflected back through ManifestWork
 
-## Architecture
+**For complete documentation and deployment instructions, see:**
+[https://github.com/open-cluster-management-io/ocm/tree/main/solutions/deploy-argocd-apps-pull](https://github.com/open-cluster-management-io/ocm/tree/main/solutions/deploy-argocd-apps-pull)
 
-The controller consists of three main components:
+### Advanced Pull Model (argocd-agent)
 
-1. **Application Controller**: Watches ArgoCD Applications with specific labels/annotations and wraps them in OCM ManifestWork objects
-2. **Application Status Controller**: Syncs application status from ManifestWork back to the hub Application
-3. **Cluster Controller**: Manages cluster registration and ArgoCD cluster secrets
+The advanced pull model powered by [argocd-agent](https://argocd-agent.readthedocs.io/) provides multi-cluster GitOps with superior Argo CD integration. This model delivers the full Argo CD experience across all your clusters with complete status synchronization visible in the Argo CD UI.
 
-### How It Works
+```mermaid
+graph TB
+    subgraph "Hub Cluster"
+        Argo CD[Argo CD Server]
+        GitOpsCluster[GitOpsCluster CR]
+        Controller[GitOpsCluster Controller]
+    end
+    
+    subgraph "Managed Cluster"
+        Agent[argocd-agent]
+        K8sResources[K8s Resources]
+    end
+    
+    GitOpsCluster -->|automates setup| Controller
+    Controller -->|deploys via OCM| Agent
+    Agent <-->|gRPC + full status| Argo CD
+    Agent -->|reconciles| K8sResources
+```
 
-1. ArgoCD Applications on the hub cluster are marked with special labels and annotations
-2. The Application Controller detects these applications and creates ManifestWork objects containing the Application as payload
-3. OCM agents on managed clusters pull these ManifestWork objects and apply the contained Applications
-4. Application status is synced back from managed clusters to the hub through ManifestWork status feedback
+**Key Benefits:**
+- **Superior Argo CD UI Integration**: Full application details, resource tree, live state, and sync status displayed perfectly in the Argo CD UI
+- **Complete Status Synchronization**: Detailed resource health, sync state, and errors reflected back to the hub in real-time
+- **Better Argo CD Core Integration**: Built on the official argocd-agent project with direct integration to Argo CD core
+- **Automated Setup via GitOpsCluster**: The `GitOpsCluster` CR automates the entire deployment process - while more advanced than the basic model, it handles all complexity
+
+**How it works:**
+1. Create a `GitOpsCluster` CR that references an OCM Placement to select target clusters
+2. The controller automatically deploys argocd-agent, configures secure gRPC communication, manages certificates, and sets up cluster registration
+3. argocd-agent connects to hub Argo CD and synchronizes applications with **full status feedback**
+
+For detailed argocd-agent architecture and operational modes, see [argocd-agent Documentation](https://argocd-agent.readthedocs.io/).
+
+## Comparison: Basic vs Advanced
+
+| Feature | Basic Pull Model | Advanced Pull Model (argocd-agent) |
+|---------|-----------------|-----------------------------------|
+| **Ease of Setup** | ✅ Easier - minimal configuration | ⚠️ More complex - automated via GitOpsCluster |
+| **Argo CD UI Display** | ⚠️ Limited UI information | ✅ Full Argo CD UI with resource tree & live state |
+| **Application Status** | ⚠️ Basic status via ManifestWork | ✅ Full detailed status via argocd-agent |
+| **Resource Health** | ⚠️ Limited health information | ✅ Complete resource health details |
+| **Sync Status** | ⚠️ Basic sync information | ✅ Detailed sync status and errors |
+| **Live State** | ⚠️ Not available | ✅ Live state comparison |
+| **Argo CD Core Integration** | ⚠️ External controller | ✅ Official argocd-agent project |
+| **Setup Automation** | Manual RBAC and Argo CD setup | ✅ Automated via GitOpsCluster CR |
+| **Certificate Management** | Manual | ✅ Automated |
+| **Cluster Registration** | Manual cluster secrets | ✅ Automated via addon |
+| **Skip Reconciliation** | ✅ Uses `argocd.argoproj.io/skip-reconcile` | ✅ Agent handles reconciliation |
+| **Best For** | Simple deployments, quick starts | Full observability, automated management |
+
+### When to Use Each Model
+
+**Use the Basic Pull Model if:**
+- You want quick setup with minimal components
+- Basic status feedback is sufficient
+- You already have Argo CD installed on managed clusters
+- You prefer manual control over Argo CD configuration
+- You're just getting started with pull-based deployments
+
+**Use the Advanced Pull Model (this repo) if:**
+- You need complete application status visibility on the hub
+- You want automated setup and lifecycle management
+- You need detailed resource health and sync information
+- You need full Argo CD UI integration
+- You want simplified management of many clusters via `GitOpsCluster` CR
 
 ## Prerequisites
 
-### Required Components
+- **Kubernetes**: v1.11.3+ clusters (hub and managed)
+- **Open Cluster Management (OCM)**: Hub cluster with registered managed clusters
+  - See [OCM Quick Start](https://open-cluster-management.io/getting-started/quick-start/)
+- **Argo CD**: Installed on hub cluster
+  - argocd-agent will be deployed automatically to managed clusters
+- **Go**: v1.24.0+ (for building from source)
+- **Docker**: 17.03+ (for building container images)
+- **kubectl**: v1.11.3+
 
-- **Open Cluster Management (OCM)**: Multi-cluster environment with hub and managed clusters
-  - See [OCM Quick Start](https://open-cluster-management.io/getting-started/quick-start/) for setup instructions
-- **ArgoCD**: Installed on both hub and managed clusters
-  - See [ArgoCD Getting Started](https://argo-cd.readthedocs.io/en/stable/getting_started/) for installation
+## Getting Started with Advanced Pull Model (argocd-agent)
 
-### Required Annotations and Labels
+### Installation
 
-For Applications to be processed by the pull controller, they must include:
+1. **Setup OCM**: Install Open Cluster Management on your hub cluster and register your managed clusters. See [OCM Quick Start](https://open-cluster-management.io/getting-started/quick-start/)
+
+2. **Setup Load Balancer**: Ensure your hub cluster has a load balancer configured for exposing Argo CD server to managed clusters for argocd-agent connectivity
+
+3. **Install Helm Chart**:
+
+```bash
+helm install argocd-agent-addon ./charts/argocd-agent-addon \
+  --namespace open-cluster-management-agent-addon \
+  --create-namespace
+```
+
+This installs the GitOpsCluster controller and creates a GitOpsCluster resource that automatically deploys argocd-agent to your managed clusters.
+
+### Understanding GitOpsCluster
+
+The `GitOpsCluster` custom resource is the control plane for managing argocd-agent deployments. It automates the entire setup process:
+
+- **Cluster Selection**: References an OCM Placement to select which managed clusters receive argocd-agent
+- **Automated Deployment**: Deploys argocd-agent to all selected clusters via OCM addon framework
+- **Certificate Management**: Automatically generates and distributes TLS certificates for secure gRPC communication
+- **Server Discovery**: Auto-discovers Argo CD server address and port
+- **Status Monitoring**: Provides conditions to track deployment status
+
+**Example GitOpsCluster configuration:**
 
 ```yaml
+apiVersion: apps.open-cluster-management.io/v1alpha1
+kind: GitOpsCluster
 metadata:
-  labels:
-    apps.open-cluster-management.io/pull-to-ocm-managed-cluster: "true"
-  annotations:
-    argocd.argoproj.io/skip-reconcile: "true"
-    apps.open-cluster-management.io/ocm-managed-cluster: "<target-cluster-name>"
-```
-
-- `pull-to-ocm-managed-cluster` label: Enables the pull controller to process this Application
-- `skip-reconcile` annotation: Prevents the Application from reconciling on the hub cluster
-- `ocm-managed-cluster` annotation: Specifies which managed cluster should receive this Application
-
-## Installation
-
-### Step 1: Prepare Hub Cluster
-
-**Option A: Disable Hub ArgoCD Application Controller (Legacy Method)**
-
-If your ArgoCD version doesn't support the `skip-reconcile` annotation:
-
-```bash
-kubectl -n argocd scale statefulset/argocd-application-controller --replicas 0
-```
-
-**Option B: Use Skip Reconcile (Recommended)**
-
-For ArgoCD versions that support [skip reconcile](https://argo-cd.readthedocs.io/en/latest/user-guide/skip_reconcile/), no additional configuration needed.
-
-### Step 2: Install the Pull Controller
-
-```bash
-kubectl apply -f https://raw.githubusercontent.com/open-cluster-management-io/argocd-pull-integration/main/deploy/install.yaml
-```
-
-### Step 3: Verify Installation
-
-Check that the controller is running:
-
-```bash
-kubectl -n open-cluster-management get deploy | grep pull
-```
-
-Expected output:
-```
-argocd-pull-integration-controller-manager   1/1     1            1           106s
-```
-
-## Configuration
-
-### Hub Cluster Setup
-
-#### Create ArgoCD Cluster Secret
-
-Create an ArgoCD cluster secret representing each managed cluster:
-
-```bash
-cat <<EOF | kubectl apply -f -
-apiVersion: v1
-kind: Secret
-metadata:
-  name: <cluster-name>-secret
-  namespace: argocd
-  labels:
-    argocd.argoproj.io/secret-type: cluster
-type: Opaque
-stringData:
-  name: <cluster-name>
-  server: https://<cluster-name>-control-plane:6443
-EOF
-```
-
-**Note**: Replace `<cluster-name>` with your actual managed cluster name. This step can be automated using the [OCM auto import controller](https://github.com/open-cluster-management-io/multicloud-integrations/).
-
-#### Apply Hub Configuration
-
-```bash
-kubectl apply -f example/hub
-```
-
-### Managed Cluster Setup
-
-Apply the required RBAC and configuration on each managed cluster:
-
-```bash
-kubectl apply -f example/managed
-```
-
-## Quick Start Example
-
-Deploy the included guestbook example to test the pull integration:
-
-### Deploy ApplicationSet
-
-```bash
-kubectl apply -f example/guestbook-app-set.yaml
-```
-
-### Verify ApplicationSet Template
-
-The ApplicationSet template must include the required annotations and labels:
-
-```yaml
+  name: my-gitops-cluster
+  namespace: open-cluster-management
 spec:
-  template:
-    metadata:
-      labels:
-        apps.open-cluster-management.io/pull-to-ocm-managed-cluster: "true"
-      annotations:
-        argocd.argoproj.io/skip-reconcile: "true"
-        apps.open-cluster-management.io/ocm-managed-cluster: "{{name}}"
+  placementRef:
+    kind: Placement
+    name: argocd-placement  # OCM Placement to select clusters
+  argoCDAgentAddon:
+    mode: managed  # or "autonomous" - see argocd-agent docs
 ```
 
-## Verification
-
-### Check ApplicationSet Creation
-
-```bash
-kubectl -n argocd get appset
-```
-
-Expected output:
-```
-NAME            AGE
-guestbook-app   84s
-```
-
-### Check Generated Applications
-
-```bash
-kubectl -n argocd get app
-```
-
-Expected output:
-```
-NAME                     SYNC STATUS   HEALTH STATUS
-cluster1-guestbook-app   Unknown       Unknown
-```
-
-### Check ManifestWork Creation
-
-On the hub cluster, verify ManifestWork objects are created:
-
-```bash
-kubectl -n <cluster-name> get manifestwork
-```
-
-Expected output:
-```
-NAME                          AGE
-cluster1-guestbook-app-d0e5   2m41s
-```
-
-### Check Application on Managed Cluster
-
-On the managed cluster, verify the Application is pulled and deployed:
-
-```bash
-kubectl -n argocd get app
-```
-
-Expected output:
-```
-NAME                     SYNC STATUS   HEALTH STATUS
-cluster1-guestbook-app   Synced        Healthy
-```
-
-### Check Application Resources
-
-Verify the actual application resources are deployed:
-
-```bash
-kubectl -n guestbook get deploy
-```
-
-Expected output:
-```
-NAME           READY   UP-TO-DATE   AVAILABLE   AGE
-guestbook-ui   1/1     1            1           7m36s
-```
-
-### Check Status Synchronization
-
-Back on the hub cluster, verify status is synced from the managed cluster:
-
-```bash
-kubectl -n argocd get app
-```
-
-Expected output:
-```
-NAME                     SYNC STATUS   HEALTH STATUS
-cluster1-guestbook-app   Synced        Healthy
-```
-
-## Troubleshooting
-
-### Common Issues
-
-**Applications not being processed:**
-- Verify the required labels and annotations are present
-- Check that the managed cluster name in annotations matches an actual OCM managed cluster
-- Ensure the pull controller is running in the `open-cluster-management` namespace
-
-**ManifestWork not created:**
-- Check controller logs: `kubectl -n open-cluster-management logs deployment/argocd-pull-integration-controller-manager`
-- Verify OCM is properly installed and managed clusters are registered
-
-**Status not syncing back:**
-- Ensure the Application Status Controller is running
-- Check ManifestWork status feedback configuration on managed clusters
-
-### Controller Logs
-
-```bash
-kubectl -n open-cluster-management logs deployment/argocd-pull-integration-controller-manager -f
-```
+For detailed information about argocd-agent modes and configuration options, see the [argocd-agent Documentation](https://argocd-agent.readthedocs.io/).
 
 ## Development
 
-For development setup and contribution guidelines, see the [CONTRIBUTING.md](CONTRIBUTING.md) document.
-
-### Building from Source
+For building from source and running tests:
 
 ```bash
-make build
+make build     # Build binary
+make test      # Run tests
+make install   # Install CRDs
 ```
 
-### Running Tests
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development guidelines.
 
-```bash
-make test
-```
+## Contributing
 
-### Building Container Image
+We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) for details.
 
-```bash
-make docker-build
-```
+This project adheres to the Open Cluster Management [Code of Conduct](https://github.com/open-cluster-management-io/community/blob/main/CODE_OF_CONDUCT.md).
 
-## Community and Support
-
-### Communication Channels
+### Community
 
 - **Slack**: [#open-cluster-mgmt](https://kubernetes.slack.com/channels/open-cluster-mgmt) on Kubernetes Slack
-- **GitHub Discussions**: Use GitHub Issues for bug reports and feature requests
-- **Mailing List**: [OCM Community](https://open-cluster-management.io/community/)
-
-### Contributing
-
-We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) for details on:
-- Code of conduct
-- Development process
-- Submitting pull requests
-- Reporting issues
+- **GitHub Issues**: Report bugs or request features
+- **Community**: [Open Cluster Management](https://open-cluster-management.io/community/)
 
 ## License
 
-This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENSE) file for details.
-
+argocd-pull-integration is licensed under the [Apache License 2.0](LICENSE).
