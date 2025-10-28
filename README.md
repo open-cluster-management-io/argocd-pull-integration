@@ -6,6 +6,8 @@ This repository provides the **advanced pull model** powered by [argocd-agent](h
 
 The **basic pull model** is also supported for simpler use cases.
 
+TLDR: See [Getting Started with Advanced Pull Model (argocd-agent)](#getting-started-with-advanced-pull-model-argocd-agent)
+
 ## Overview
 
 Traditional Argo CD deployments use a "push" model where applications are pushed from a centralized Argo CD instance to remote clusters. This project enables a "pull" model where remote clusters pull their applications from a central hub, providing better scalability, security, and resilience.
@@ -141,9 +143,11 @@ For detailed argocd-agent architecture and operational modes, see [argocd-agent 
 3. **Install Helm Chart**:
 
 ```bash
-helm install argocd-agent-addon ./charts/argocd-agent-addon \
-  --namespace open-cluster-management-agent-addon \
-  --create-namespace
+# Hub Cluster
+helm repo add ocm https://open-cluster-management.io/helm-charts
+helm repo update
+helm search repo ocm
+helm install argocd-agent-addon ocm/argocd-agent-addon
 ```
 
 This installs the GitOpsCluster controller and creates a GitOpsCluster resource that automatically deploys argocd-agent to your managed clusters.
