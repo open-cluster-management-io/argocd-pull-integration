@@ -262,20 +262,6 @@ var _ = Describe("ArgoCD Agent Addon Full E2E", Label("full"), Ordered, func() {
 				g.Expect(err).NotTo(HaveOccurred())
 				g.Expect(output).To(Equal("Running"))
 			}).Should(Succeed())
-
-			By("checking ArgoCD principal pod logs for event processing")
-			var principalPodName string
-			Eventually(func(g Gomega) {
-				cmd := exec.Command("kubectl", "--context", hubContext,
-					"get", "pods",
-					"-n", argoCDNamespace,
-					"-l", "app.kubernetes.io/name=argocd-agent-principal",
-					"-o", "jsonpath={.items[0].metadata.name}")
-				output, err := utils.Run(cmd)
-				g.Expect(err).NotTo(HaveOccurred())
-				g.Expect(output).NotTo(BeEmpty())
-				principalPodName = output
-			}).Should(Succeed())
 		})
 
 		It("should reconcile GitOpsCluster and create ManagedClusterAddOn", func() {
