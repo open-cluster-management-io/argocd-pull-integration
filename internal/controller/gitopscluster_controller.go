@@ -28,7 +28,9 @@ import (
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	clusterv1 "open-cluster-management.io/api/cluster/v1"
 	clusterv1beta1 "open-cluster-management.io/api/cluster/v1beta1"
@@ -72,6 +74,9 @@ func (r *GitOpsClusterReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	}
 
 	klog.InfoS("Reconciling GitOpsCluster", "namespace", gitOpsCluster.Namespace, "name", gitOpsCluster.Name)
+
+	// Initialize all conditions upfront so users can see the full status immediately
+	r.initializeConditions(ctx, gitOpsCluster)
 
 	// argoCDNamespace is the same as GitOpsCluster namespace
 	argoCDNamespace := gitOpsCluster.Namespace
@@ -336,6 +341,53 @@ func (r *GitOpsClusterReconciler) buildAddonVariables(
 	return variables
 }
 
+// initializeConditions initializes all conditions with Unknown status if they don't exist yet
+// This ensures users can see all expected conditions immediately, rather than seeing them appear one by one
+func (r *GitOpsClusterReconciler) initializeConditions(
+	ctx context.Context,
+	gitOpsCluster *appsv1alpha1.GitOpsCluster) {
+
+	// List of all conditions that should be tracked
+	conditionTypes := []string{
+		appsv1alpha1.ConditionRBACReady,
+		appsv1alpha1.ConditionServerDiscovered,
+		appsv1alpha1.ConditionJWTSecretReady,
+		appsv1alpha1.ConditionCACertificateReady,
+		appsv1alpha1.ConditionPrincipalCertificateReady,
+		appsv1alpha1.ConditionResourceProxyCertificateReady,
+		appsv1alpha1.ConditionPlacementEvaluated,
+		appsv1alpha1.ConditionClustersImported,
+		appsv1alpha1.ConditionManifestWorkCreated,
+		appsv1alpha1.ConditionAddonConfigured,
+	}
+
+	needsUpdate := false
+	for _, condType := range conditionTypes {
+		// Check if condition already exists
+		if meta.FindStatusCondition(gitOpsCluster.Status.Conditions, condType) == nil {
+			// Condition doesn't exist, initialize it
+			condition := metav1.Condition{
+				Type:               condType,
+				Status:             metav1.ConditionUnknown,
+				ObservedGeneration: gitOpsCluster.Generation,
+				LastTransitionTime: metav1.Now(),
+				Reason:             appsv1alpha1.ReasonInProgress,
+				Message:            "Reconciliation in progress",
+			}
+			meta.SetStatusCondition(&gitOpsCluster.Status.Conditions, condition)
+			needsUpdate = true
+		}
+	}
+
+	// Only update status if we added new conditions
+	if needsUpdate {
+		if err := r.Status().Update(ctx, gitOpsCluster); err != nil {
+			klog.ErrorS(err, "Failed to initialize GitOpsCluster conditions",
+				"namespace", gitOpsCluster.Namespace, "name", gitOpsCluster.Name)
+		}
+	}
+}
+
 // setCondition sets or updates a condition in the GitOpsCluster status
 func (r *GitOpsClusterReconciler) setCondition(
 	ctx context.Context,
@@ -375,10 +427,56 @@ func joinClusterNames(clusters []string) string {
 	return fmt.Sprintf("%v... (%d total)", clusters[:3], len(clusters))
 }
 
+// placementDecisionMapper maps PlacementDecision changes to GitOpsCluster reconcile requests
+func (r *GitOpsClusterReconciler) placementDecisionMapper(ctx context.Context, obj client.Object) []reconcile.Request {
+	placementDecision, ok := obj.(*clusterv1beta1.PlacementDecision)
+	if !ok {
+		return nil
+	}
+
+	// Get the placement name from the PlacementDecision labels
+	placementName, ok := placementDecision.Labels["cluster.open-cluster-management.io/placement"]
+	if !ok {
+		return nil
+	}
+
+	// List all GitOpsClusters in the same namespace that reference this placement
+	gitOpsClusters := &appsv1alpha1.GitOpsClusterList{}
+	if err := r.List(ctx, gitOpsClusters, client.InNamespace(placementDecision.Namespace)); err != nil {
+		klog.ErrorS(err, "Failed to list GitOpsClusters for PlacementDecision",
+			"placementDecision", placementDecision.Name, "namespace", placementDecision.Namespace)
+		return nil
+	}
+
+	// Find GitOpsClusters that reference this placement
+	requests := []reconcile.Request{}
+	for _, gitOpsCluster := range gitOpsClusters.Items {
+		if gitOpsCluster.Spec.PlacementRef.Name == placementName &&
+			gitOpsCluster.Spec.PlacementRef.Kind == "Placement" {
+			klog.InfoS("PlacementDecision changed, triggering GitOpsCluster reconciliation",
+				"placementDecision", placementDecision.Name,
+				"gitOpsCluster", gitOpsCluster.Name,
+				"namespace", gitOpsCluster.Namespace)
+			requests = append(requests, reconcile.Request{
+				NamespacedName: types.NamespacedName{
+					Name:      gitOpsCluster.Name,
+					Namespace: gitOpsCluster.Namespace,
+				},
+			})
+		}
+	}
+
+	return requests
+}
+
 // SetupWithManager sets up the controller with the Manager.
 func (r *GitOpsClusterReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&appsv1alpha1.GitOpsCluster{}).
+		Watches(
+			&clusterv1beta1.PlacementDecision{},
+			handler.EnqueueRequestsFromMapFunc(r.placementDecisionMapper),
+		).
 		Named("gitopscluster").
 		Complete(r)
 }
