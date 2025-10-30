@@ -403,6 +403,8 @@ spec:
         command:
         - /manager
         env:
+        - name: ARGOCD_CLUSTER_CONFIG_NAMESPACES
+          value: "*"
         - name: WATCH_NAMESPACE
           valueFrom:
             fieldRef:
