@@ -26,6 +26,7 @@ import (
 	"k8s.io/client-go/kubernetes/scheme"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
+	clusterv1beta1 "open-cluster-management.io/api/cluster/v1beta1"
 	appsv1alpha1 "open-cluster-management.io/argocd-pull-integration/api/v1alpha1"
 )
 
@@ -253,6 +254,233 @@ func TestSetCondition(t *testing.T) {
 			}
 			if !found {
 				t.Errorf("condition type %q not found in status", tt.conditionType)
+			}
+		})
+	}
+}
+
+func TestInitializeConditions(t *testing.T) {
+	s := runtime.NewScheme()
+	_ = scheme.AddToScheme(s)
+	_ = appsv1alpha1.AddToScheme(s)
+
+	tests := []struct {
+		name               string
+		existingConditions []metav1.Condition
+		wantConditionCount int
+	}{
+		{
+			name:               "initializes all conditions when none exist",
+			existingConditions: []metav1.Condition{},
+			wantConditionCount: 10, // All 10 conditions should be initialized
+		},
+		{
+			name: "keeps existing conditions and adds missing ones",
+			existingConditions: []metav1.Condition{
+				{
+					Type:   appsv1alpha1.ConditionRBACReady,
+					Status: metav1.ConditionTrue,
+					Reason: appsv1alpha1.ReasonSuccess,
+				},
+				{
+					Type:   appsv1alpha1.ConditionServerDiscovered,
+					Status: metav1.ConditionTrue,
+					Reason: appsv1alpha1.ReasonSuccess,
+				},
+			},
+			wantConditionCount: 10, // Should add 8 more conditions
+		},
+		{
+			name: "does not modify when all conditions exist",
+			existingConditions: []metav1.Condition{
+				{Type: appsv1alpha1.ConditionRBACReady, Status: metav1.ConditionTrue, Reason: appsv1alpha1.ReasonSuccess},
+				{Type: appsv1alpha1.ConditionServerDiscovered, Status: metav1.ConditionTrue, Reason: appsv1alpha1.ReasonSuccess},
+				{Type: appsv1alpha1.ConditionJWTSecretReady, Status: metav1.ConditionTrue, Reason: appsv1alpha1.ReasonSuccess},
+				{Type: appsv1alpha1.ConditionCACertificateReady, Status: metav1.ConditionTrue, Reason: appsv1alpha1.ReasonSuccess},
+				{Type: appsv1alpha1.ConditionPrincipalCertificateReady, Status: metav1.ConditionTrue, Reason: appsv1alpha1.ReasonSuccess},
+				{Type: appsv1alpha1.ConditionResourceProxyCertificateReady, Status: metav1.ConditionTrue, Reason: appsv1alpha1.ReasonSuccess},
+				{Type: appsv1alpha1.ConditionPlacementEvaluated, Status: metav1.ConditionTrue, Reason: appsv1alpha1.ReasonSuccess},
+				{Type: appsv1alpha1.ConditionClustersImported, Status: metav1.ConditionTrue, Reason: appsv1alpha1.ReasonSuccess},
+				{Type: appsv1alpha1.ConditionManifestWorkCreated, Status: metav1.ConditionTrue, Reason: appsv1alpha1.ReasonSuccess},
+				{Type: appsv1alpha1.ConditionAddonConfigured, Status: metav1.ConditionTrue, Reason: appsv1alpha1.ReasonSuccess},
+			},
+			wantConditionCount: 10, // Should keep all 10
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gitOpsCluster := &appsv1alpha1.GitOpsCluster{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:       "test-cluster",
+					Namespace:  "argocd",
+					Generation: 1,
+				},
+				Spec: appsv1alpha1.GitOpsClusterSpec{
+					PlacementRef: corev1.ObjectReference{
+						Kind: "Placement",
+						Name: "test-placement",
+					},
+					ArgoCDAgentAddon: appsv1alpha1.ArgoCDAgentAddonSpec{},
+				},
+				Status: appsv1alpha1.GitOpsClusterStatus{
+					Conditions: tt.existingConditions,
+				},
+			}
+
+			r := &GitOpsClusterReconciler{
+				Client: fake.NewClientBuilder().WithScheme(s).WithObjects(gitOpsCluster).WithStatusSubresource(gitOpsCluster).Build(),
+				Scheme: s,
+			}
+
+			r.initializeConditions(context.TODO(), gitOpsCluster)
+
+			if len(gitOpsCluster.Status.Conditions) != tt.wantConditionCount {
+				t.Errorf("initializeConditions() resulted in %d conditions, want %d",
+					len(gitOpsCluster.Status.Conditions), tt.wantConditionCount)
+			}
+
+			// Verify that newly added conditions have Unknown status and InProgress reason
+			for _, cond := range gitOpsCluster.Status.Conditions {
+				// If this was not in the existing conditions, it should be Unknown/InProgress
+				found := false
+				for _, existingCond := range tt.existingConditions {
+					if existingCond.Type == cond.Type {
+						found = true
+						break
+					}
+				}
+				if !found {
+					if cond.Status != metav1.ConditionUnknown {
+						t.Errorf("new condition %s has status %v, want Unknown", cond.Type, cond.Status)
+					}
+					if cond.Reason != appsv1alpha1.ReasonInProgress {
+						t.Errorf("new condition %s has reason %v, want InProgress", cond.Type, cond.Reason)
+					}
+				}
+			}
+		})
+	}
+}
+
+func TestPlacementDecisionMapper(t *testing.T) {
+	s := runtime.NewScheme()
+	_ = scheme.AddToScheme(s)
+	_ = appsv1alpha1.AddToScheme(s)
+	_ = clusterv1beta1.AddToScheme(s)
+
+	namespace := "argocd"
+
+	tests := []struct {
+		name             string
+		existingObjs     []runtime.Object
+		placementName    string
+		wantRequestCount int
+	}{
+		{
+			name: "maps PlacementDecision to GitOpsCluster",
+			existingObjs: []runtime.Object{
+				&appsv1alpha1.GitOpsCluster{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "gitops-cluster-1",
+						Namespace: namespace,
+					},
+					Spec: appsv1alpha1.GitOpsClusterSpec{
+						PlacementRef: corev1.ObjectReference{
+							Kind: "Placement",
+							Name: "test-placement",
+						},
+						ArgoCDAgentAddon: appsv1alpha1.ArgoCDAgentAddonSpec{},
+					},
+				},
+				&appsv1alpha1.GitOpsCluster{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "gitops-cluster-2",
+						Namespace: namespace,
+					},
+					Spec: appsv1alpha1.GitOpsClusterSpec{
+						PlacementRef: corev1.ObjectReference{
+							Kind: "Placement",
+							Name: "test-placement",
+						},
+						ArgoCDAgentAddon: appsv1alpha1.ArgoCDAgentAddonSpec{},
+					},
+				},
+				&appsv1alpha1.GitOpsCluster{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "gitops-cluster-3",
+						Namespace: namespace,
+					},
+					Spec: appsv1alpha1.GitOpsClusterSpec{
+						PlacementRef: corev1.ObjectReference{
+							Kind: "Placement",
+							Name: "other-placement",
+						},
+						ArgoCDAgentAddon: appsv1alpha1.ArgoCDAgentAddonSpec{},
+					},
+				},
+			},
+			placementName:    "test-placement",
+			wantRequestCount: 2, // Should match gitops-cluster-1 and gitops-cluster-2
+		},
+		{
+			name: "returns empty when no GitOpsClusters reference placement",
+			existingObjs: []runtime.Object{
+				&appsv1alpha1.GitOpsCluster{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "gitops-cluster-1",
+						Namespace: namespace,
+					},
+					Spec: appsv1alpha1.GitOpsClusterSpec{
+						PlacementRef: corev1.ObjectReference{
+							Kind: "Placement",
+							Name: "other-placement",
+						},
+						ArgoCDAgentAddon: appsv1alpha1.ArgoCDAgentAddonSpec{},
+					},
+				},
+			},
+			placementName:    "test-placement",
+			wantRequestCount: 0,
+		},
+		{
+			name:             "returns empty when no GitOpsClusters exist",
+			existingObjs:     []runtime.Object{},
+			placementName:    "test-placement",
+			wantRequestCount: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r := &GitOpsClusterReconciler{
+				Client: fake.NewClientBuilder().WithScheme(s).WithRuntimeObjects(tt.existingObjs...).Build(),
+				Scheme: s,
+			}
+
+			placementDecision := &clusterv1beta1.PlacementDecision{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-placement-decision-1",
+					Namespace: namespace,
+					Labels: map[string]string{
+						"cluster.open-cluster-management.io/placement": tt.placementName,
+					},
+				},
+			}
+
+			requests := r.placementDecisionMapper(context.Background(), placementDecision)
+
+			if len(requests) != tt.wantRequestCount {
+				t.Errorf("placementDecisionMapper() returned %d requests, want %d", len(requests), tt.wantRequestCount)
+			}
+
+			// Verify that the returned requests are correct
+			if tt.wantRequestCount > 0 {
+				for _, req := range requests {
+					if req.Namespace != namespace {
+						t.Errorf("request namespace = %v, want %v", req.Namespace, namespace)
+					}
+				}
 			}
 		})
 	}

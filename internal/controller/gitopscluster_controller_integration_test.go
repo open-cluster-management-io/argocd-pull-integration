@@ -444,3 +444,217 @@ func TestBuildArgoCDAgentManifestWork(t *testing.T) {
 		})
 	}
 }
+
+func TestPlacementDecisionChangeTriggerReconciliation(t *testing.T) {
+	s := runtime.NewScheme()
+	_ = scheme.AddToScheme(s)
+	_ = appsv1alpha1.AddToScheme(s)
+	_ = clusterv1.AddToScheme(s)
+	_ = clusterv1beta1.AddToScheme(s)
+	_ = workv1.AddToScheme(s)
+
+	namespace := "argocd"
+
+	// Test that when a PlacementDecision is added/updated with new clusters,
+	// the mapper correctly identifies GitOpsClusters that should be reconciled
+	tests := []struct {
+		name                   string
+		gitOpsClusters         []appsv1alpha1.GitOpsCluster
+		placementDecision      *clusterv1beta1.PlacementDecision
+		expectedReconcileCount int
+	}{
+		{
+			name: "new cluster added to placement decision triggers reconciliation",
+			gitOpsClusters: []appsv1alpha1.GitOpsCluster{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "gitops-1",
+						Namespace: namespace,
+					},
+					Spec: appsv1alpha1.GitOpsClusterSpec{
+						PlacementRef: corev1.ObjectReference{
+							Kind: "Placement",
+							Name: "prod-placement",
+						},
+						ArgoCDAgentAddon: appsv1alpha1.ArgoCDAgentAddonSpec{
+							PrincipalServerAddress: "argocd-server.argocd.svc",
+							PrincipalServerPort:    "8080",
+						},
+					},
+				},
+			},
+			placementDecision: &clusterv1beta1.PlacementDecision{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "prod-placement-decision-1",
+					Namespace: namespace,
+					Labels: map[string]string{
+						"cluster.open-cluster-management.io/placement": "prod-placement",
+					},
+				},
+				Status: clusterv1beta1.PlacementDecisionStatus{
+					Decisions: []clusterv1beta1.ClusterDecision{
+						{ClusterName: "new-cluster-1"},
+					},
+				},
+			},
+			expectedReconcileCount: 1,
+		},
+		{
+			name: "multiple gitops clusters watching same placement",
+			gitOpsClusters: []appsv1alpha1.GitOpsCluster{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "gitops-1",
+						Namespace: namespace,
+					},
+					Spec: appsv1alpha1.GitOpsClusterSpec{
+						PlacementRef: corev1.ObjectReference{
+							Kind: "Placement",
+							Name: "prod-placement",
+						},
+						ArgoCDAgentAddon: appsv1alpha1.ArgoCDAgentAddonSpec{
+							PrincipalServerAddress: "argocd-server.argocd.svc",
+							PrincipalServerPort:    "8080",
+						},
+					},
+				},
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "gitops-2",
+						Namespace: namespace,
+					},
+					Spec: appsv1alpha1.GitOpsClusterSpec{
+						PlacementRef: corev1.ObjectReference{
+							Kind: "Placement",
+							Name: "prod-placement",
+						},
+						ArgoCDAgentAddon: appsv1alpha1.ArgoCDAgentAddonSpec{
+							PrincipalServerAddress: "argocd-server.argocd.svc",
+							PrincipalServerPort:    "8080",
+						},
+					},
+				},
+			},
+			placementDecision: &clusterv1beta1.PlacementDecision{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "prod-placement-decision-1",
+					Namespace: namespace,
+					Labels: map[string]string{
+						"cluster.open-cluster-management.io/placement": "prod-placement",
+					},
+				},
+				Status: clusterv1beta1.PlacementDecisionStatus{
+					Decisions: []clusterv1beta1.ClusterDecision{
+						{ClusterName: "new-cluster-1"},
+					},
+				},
+			},
+			expectedReconcileCount: 2,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			objs := []runtime.Object{}
+			for i := range tt.gitOpsClusters {
+				objs = append(objs, &tt.gitOpsClusters[i])
+			}
+
+			r := &GitOpsClusterReconciler{
+				Client: fake.NewClientBuilder().WithScheme(s).WithRuntimeObjects(objs...).Build(),
+				Scheme: s,
+			}
+
+			// Call the mapper with the PlacementDecision
+			requests := r.placementDecisionMapper(context.Background(), tt.placementDecision)
+
+			if len(requests) != tt.expectedReconcileCount {
+				t.Errorf("placementDecisionMapper() returned %d reconcile requests, want %d",
+					len(requests), tt.expectedReconcileCount)
+			}
+		})
+	}
+}
+
+func TestConditionInitializationOnReconcile(t *testing.T) {
+	s := runtime.NewScheme()
+	_ = scheme.AddToScheme(s)
+	_ = appsv1alpha1.AddToScheme(s)
+	_ = clusterv1beta1.AddToScheme(s)
+
+	namespace := "argocd"
+
+	gitOpsCluster := &appsv1alpha1.GitOpsCluster{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:       "test-gitops",
+			Namespace:  namespace,
+			Generation: 1,
+		},
+		Spec: appsv1alpha1.GitOpsClusterSpec{
+			PlacementRef: corev1.ObjectReference{
+				Kind: "Placement",
+				Name: "test-placement",
+			},
+			ArgoCDAgentAddon: appsv1alpha1.ArgoCDAgentAddonSpec{
+				PrincipalServerAddress: "argocd-server.argocd.svc",
+				PrincipalServerPort:    "8080",
+			},
+		},
+	}
+
+	placement := &clusterv1beta1.Placement{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-placement",
+			Namespace: namespace,
+		},
+	}
+
+	r := &GitOpsClusterReconciler{
+		Client: fake.NewClientBuilder().WithScheme(s).
+			WithRuntimeObjects(gitOpsCluster, placement).
+			WithStatusSubresource(&appsv1alpha1.GitOpsCluster{}).
+			Build(),
+		Scheme: s,
+	}
+
+	// Call initializeConditions
+	r.initializeConditions(context.Background(), gitOpsCluster)
+
+	// Verify all conditions are initialized
+	expectedConditions := []string{
+		appsv1alpha1.ConditionRBACReady,
+		appsv1alpha1.ConditionServerDiscovered,
+		appsv1alpha1.ConditionJWTSecretReady,
+		appsv1alpha1.ConditionCACertificateReady,
+		appsv1alpha1.ConditionPrincipalCertificateReady,
+		appsv1alpha1.ConditionResourceProxyCertificateReady,
+		appsv1alpha1.ConditionPlacementEvaluated,
+		appsv1alpha1.ConditionClustersImported,
+		appsv1alpha1.ConditionManifestWorkCreated,
+		appsv1alpha1.ConditionAddonConfigured,
+	}
+
+	if len(gitOpsCluster.Status.Conditions) != len(expectedConditions) {
+		t.Errorf("Expected %d conditions, got %d", len(expectedConditions), len(gitOpsCluster.Status.Conditions))
+	}
+
+	// Verify each condition is present with Unknown status
+	for _, expectedType := range expectedConditions {
+		found := false
+		for _, cond := range gitOpsCluster.Status.Conditions {
+			if cond.Type == expectedType {
+				found = true
+				if cond.Status != metav1.ConditionUnknown {
+					t.Errorf("Condition %s has status %v, want Unknown", expectedType, cond.Status)
+				}
+				if cond.Reason != appsv1alpha1.ReasonInProgress {
+					t.Errorf("Condition %s has reason %v, want InProgress", expectedType, cond.Reason)
+				}
+				break
+			}
+		}
+		if !found {
+			t.Errorf("Expected condition %s not found", expectedType)
+		}
+	}
+}
