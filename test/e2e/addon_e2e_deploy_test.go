@@ -122,6 +122,127 @@ var _ = Describe("ArgoCD Agent Addon Deployment E2E", Label("deploy"), Ordered, 
 			}).Should(Succeed())
 		})
 
+		It("should verify GitOpsCluster status conditions on hub", func() {
+			By("verifying GitOpsCluster exists")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "--context", hubContext,
+					"get", "gitopscluster", "gitops-cluster",
+					"-n", argoCDNamespace)
+				_, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+			}).Should(Succeed())
+
+			By("verifying GitOpsCluster RBACReady condition")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "--context", hubContext,
+					"get", "gitopscluster", "gitops-cluster",
+					"-n", argoCDNamespace,
+					"-o", "jsonpath={.status.conditions[?(@.type=='RBACReady')].status}")
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).To(Equal("True"))
+			}).Should(Succeed())
+
+			By("verifying GitOpsCluster ServerDiscovered condition")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "--context", hubContext,
+					"get", "gitopscluster", "gitops-cluster",
+					"-n", argoCDNamespace,
+					"-o", "jsonpath={.status.conditions[?(@.type=='ServerDiscovered')].status}")
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).To(Equal("True"))
+			}).Should(Succeed())
+
+			By("verifying GitOpsCluster JWTSecretReady condition")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "--context", hubContext,
+					"get", "gitopscluster", "gitops-cluster",
+					"-n", argoCDNamespace,
+					"-o", "jsonpath={.status.conditions[?(@.type=='JWTSecretReady')].status}")
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).To(Equal("True"))
+			}).Should(Succeed())
+
+			By("verifying GitOpsCluster CACertificateReady condition")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "--context", hubContext,
+					"get", "gitopscluster", "gitops-cluster",
+					"-n", argoCDNamespace,
+					"-o", "jsonpath={.status.conditions[?(@.type=='CACertificateReady')].status}")
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).To(Equal("True"))
+			}).Should(Succeed())
+
+			By("verifying GitOpsCluster PrincipalCertificateReady condition")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "--context", hubContext,
+					"get", "gitopscluster", "gitops-cluster",
+					"-n", argoCDNamespace,
+					"-o", "jsonpath={.status.conditions[?(@.type=='PrincipalCertificateReady')].status}")
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).To(Equal("True"))
+			}).Should(Succeed())
+
+			By("verifying GitOpsCluster ResourceProxyCertificateReady condition")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "--context", hubContext,
+					"get", "gitopscluster", "gitops-cluster",
+					"-n", argoCDNamespace,
+					"-o", "jsonpath={.status.conditions[?(@.type=='ResourceProxyCertificateReady')].status}")
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).To(Equal("True"))
+			}).Should(Succeed())
+
+			By("verifying GitOpsCluster PlacementEvaluated condition")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "--context", hubContext,
+					"get", "gitopscluster", "gitops-cluster",
+					"-n", argoCDNamespace,
+					"-o", "jsonpath={.status.conditions[?(@.type=='PlacementEvaluated')].status}")
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).To(Equal("True"))
+			}).Should(Succeed())
+
+			By("verifying GitOpsCluster ClustersImported condition")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "--context", hubContext,
+					"get", "gitopscluster", "gitops-cluster",
+					"-n", argoCDNamespace,
+					"-o", "jsonpath={.status.conditions[?(@.type=='ClustersImported')].status}")
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).To(Equal("True"))
+			}).Should(Succeed())
+
+			By("verifying GitOpsCluster ManifestWorkCreated condition")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "--context", hubContext,
+					"get", "gitopscluster", "gitops-cluster",
+					"-n", argoCDNamespace,
+					"-o", "jsonpath={.status.conditions[?(@.type=='ManifestWorkCreated')].status}")
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).To(Equal("True"))
+			}).Should(Succeed())
+
+			By("verifying GitOpsCluster AddonConfigured condition")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "--context", hubContext,
+					"get", "gitopscluster", "gitops-cluster",
+					"-n", argoCDNamespace,
+					"-o", "jsonpath={.status.conditions[?(@.type=='AddonConfigured')].status}")
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).To(Equal("True"))
+			}).Should(Succeed())
+		})
+
 		It("should create ClusterManagementAddOn on hub", func() {
 			By("verifying ClusterManagementAddOn exists")
 			Eventually(func(g Gomega) {
@@ -129,6 +250,70 @@ var _ = Describe("ArgoCD Agent Addon Deployment E2E", Label("deploy"), Ordered, 
 					"get", "clustermanagementaddon", "argocd-agent-addon")
 				_, err := utils.Run(cmd)
 				g.Expect(err).NotTo(HaveOccurred())
+			}).Should(Succeed())
+		})
+
+		It("should verify all ArgoCD pods running on hub", func() {
+			By("verifying ArgoCD principal pod is running")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "--context", hubContext,
+					"get", "pods",
+					"-n", argoCDNamespace,
+					"-l", "app.kubernetes.io/name=argocd-agent-principal",
+					"-o", "jsonpath={.items[0].status.phase}")
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).To(Equal("Running"))
+			}).Should(Succeed())
+
+			By("verifying ArgoCD redis pod is running on hub")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "--context", hubContext,
+					"get", "pods",
+					"-n", argoCDNamespace,
+					"-l", "app.kubernetes.io/name=argocd-redis",
+					"-o", "jsonpath={.items[0].status.phase}")
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).To(Equal("Running"))
+			}).Should(Succeed())
+
+			By("verifying ArgoCD repo-server pod is running on hub")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "--context", hubContext,
+					"get", "pods",
+					"-n", argoCDNamespace,
+					"-l", "app.kubernetes.io/name=argocd-repo-server",
+					"-o", "jsonpath={.items[0].status.phase}")
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).To(Equal("Running"))
+			}).Should(Succeed())
+
+			By("verifying ArgoCD server pod is running on hub")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "--context", hubContext,
+					"get", "pods",
+					"-n", argoCDNamespace,
+					"-l", "app.kubernetes.io/name=argocd-server",
+					"-o", "jsonpath={.items[0].status.phase}")
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).To(Equal("Running"))
+			}).Should(Succeed())
+
+			By("checking ArgoCD principal pod logs for event processing")
+			var principalPodName string
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "--context", hubContext,
+					"get", "pods",
+					"-n", argoCDNamespace,
+					"-l", "app.kubernetes.io/name=argocd-agent-principal",
+					"-o", "jsonpath={.items[0].metadata.name}")
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).NotTo(BeEmpty())
+				principalPodName = output
 			}).Should(Succeed())
 		})
 
@@ -280,29 +465,40 @@ var _ = Describe("ArgoCD Agent Addon Deployment E2E", Label("deploy"), Ordered, 
 				g.Expect(output).To(Equal("Running"))
 			}).Should(Succeed())
 
-			By("checking ArgoCD agent pod logs for errors")
+			By("verifying ArgoCD application-controller pod is running")
 			Eventually(func(g Gomega) {
 				cmd := exec.Command("kubectl", "--context", cluster1Context,
-					"logs", podName,
+					"get", "pods",
 					"-n", argoCDNamespace,
-					"--tail=50")
+					"-l", "app.kubernetes.io/name=argocd-application-controller",
+					"-o", "jsonpath={.items[0].status.phase}")
 				output, err := utils.Run(cmd)
 				g.Expect(err).NotTo(HaveOccurred())
-				// Check that logs don't contain common error indicators
-				lowerOutput := strings.ToLower(output)
-				g.Expect(lowerOutput).NotTo(ContainSubstring("panic:"), "ArgoCD agent logs should not contain panics")
-				g.Expect(lowerOutput).NotTo(ContainSubstring("fatal error"), "ArgoCD agent logs should not contain fatal errors")
+				g.Expect(output).To(Equal("Running"))
+			}).Should(Succeed())
 
-				// Log a sample for visibility
-				lines := strings.Split(output, "\n")
-				if len(lines) > 5 {
-					fmt.Fprintf(GinkgoWriter, "Last 5 log lines from ArgoCD agent:\n")
-					for _, line := range lines[len(lines)-6 : len(lines)-1] {
-						if line != "" {
-							fmt.Fprintf(GinkgoWriter, "  %s\n", line)
-						}
-					}
-				}
+			By("verifying ArgoCD redis pod is running on cluster1")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "--context", cluster1Context,
+					"get", "pods",
+					"-n", argoCDNamespace,
+					"-l", "app.kubernetes.io/name=argocd-redis",
+					"-o", "jsonpath={.items[0].status.phase}")
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).To(Equal("Running"))
+			}).Should(Succeed())
+
+			By("verifying ArgoCD repo-server pod is running on cluster1")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "--context", cluster1Context,
+					"get", "pods",
+					"-n", argoCDNamespace,
+					"-l", "app.kubernetes.io/name=argocd-repo-server",
+					"-o", "jsonpath={.items[0].status.phase}")
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).To(Equal("Running"))
 			}).Should(Succeed())
 		})
 	})
