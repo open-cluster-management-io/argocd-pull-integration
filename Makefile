@@ -163,6 +163,57 @@ test-e2e-full: ## Complete e2e test with kind cluster setup, build, deployment, 
 	@echo "  kubectl get application -n argocd --context kind-$(SPOKE_CLUSTER)"
 	@echo "  sleep 2"
 
+.PHONY: test-e2e-cleanup
+test-e2e-cleanup: manifests generate fmt vet ## Run e2e cleanup tests (checks addon cleanup behavior)
+	@echo "===== Installing MetalLB ====="
+	./test/e2e/scripts/install_metallb.sh
+	@echo ""
+	@echo "===== Setting up OCM environment ====="
+	./test/e2e/scripts/setup_ocm_env.sh
+	@echo ""
+	@echo "===== Installing addon via Helm ====="
+	$(KUBECTL) config use-context kind-$(HUB_CLUSTER)
+	$(KUBECTL) create namespace argocd || true
+	$(KUBECTL) label namespace argocd app.kubernetes.io/managed-by=Helm --overwrite
+	$(KUBECTL) annotate namespace argocd meta.helm.sh/release-name=argocd-agent-addon meta.helm.sh/release-namespace=argocd --overwrite
+	helm install argocd-agent-addon \
+		./charts/argocd-agent-addon \
+		--namespace argocd \
+		--set image=quay.io/open-cluster-management/argocd-pull-integration \
+		--set tag=latest \
+		--set addonImage=quay.io/open-cluster-management/argocd-pull-integration \
+		--set addonTag=latest \
+		--wait \
+		--timeout 10m
+	@echo ""
+	@echo "===== Running cleanup e2e tests ====="
+	go test -tags=e2e ./test/e2e/ -v -ginkgo.v --ginkgo.label-filter="cleanup"
+	@echo ""
+	@echo "===== E2E Cleanup Tests Complete ====="
+
+.PHONY: test-e2e-cleanup-full
+test-e2e-cleanup-full: ## Complete e2e test with cleanup verification (cluster setup + deployment + cleanup)
+	@echo "===== Cleaning up existing clusters ====="
+	$(KIND) delete clusters --all || true
+	@echo ""
+	@echo "===== Creating KinD clusters ====="
+	$(KIND) create cluster --name $(HUB_CLUSTER)
+	$(KIND) create cluster --name $(SPOKE_CLUSTER)
+	@echo ""
+	@echo "===== Building controller image ====="
+	$(MAKE) docker-build IMG=$(E2E_IMG)
+	@echo ""
+	@echo "===== Loading image to clusters ====="
+	$(KIND) load docker-image $(E2E_IMG) --name $(HUB_CLUSTER)
+	$(KIND) load docker-image $(E2E_IMG) --name $(SPOKE_CLUSTER)
+	@echo ""
+	@echo "===== Running cleanup e2e tests ====="
+	$(MAKE) test-e2e-cleanup
+	@echo ""
+	@echo "===== E2E Cleanup Tests Complete ====="
+	@echo "Hub context: kind-$(HUB_CLUSTER)"
+	@echo "Spoke context: kind-$(SPOKE_CLUSTER)"
+
 ##@ Build
 
 .PHONY: build

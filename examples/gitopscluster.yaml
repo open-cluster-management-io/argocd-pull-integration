@@ -1,0 +1,14 @@
+apiVersion: apps.open-cluster-management.io/v1alpha1
+kind: GitOpsCluster
+metadata:
+  name: gitops-cluster
+  namespace: argocd
+spec:
+  placementRef:
+    apiVersion: cluster.open-cluster-management.io/v1beta1
+    kind: Placement
+    name: placement
+  argoCDAgentAddon:
+    mode: managed
+    operatorImage: quay.io/mikeshng/argocd-operator:latest
+    agentImage: ghcr.io/argoproj-labs/argocd-agent/argocd-agent:latest

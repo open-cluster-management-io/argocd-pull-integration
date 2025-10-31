@@ -54,10 +54,6 @@ type ArgoCDAgentAddonSpec struct {
 	// AgentImage is the ArgoCD agent image to use
 	// +optional
 	AgentImage string `json:"agentImage,omitempty"`
-
-	// Uninstall indicates whether to uninstall the addon
-	// +optional
-	Uninstall bool `json:"uninstall,omitempty"`
 }
 
 // GitOpsClusterStatus defines the observed state of GitOpsCluster
@@ -98,6 +94,15 @@ const (
 
 	// ConditionAddonConfigured indicates that addon config and ManagedClusterAddon are configured
 	ConditionAddonConfigured = "AddonConfigured"
+
+	// ConditionPlacementTolerationConfigured indicates that placement tolerations have been configured
+	ConditionPlacementTolerationConfigured = "PlacementTolerationConfigured"
+
+	// ConditionAddOnTemplateReady indicates that AddOnTemplate has been created/updated
+	ConditionAddOnTemplateReady = "AddOnTemplateReady"
+
+	// ConditionRemovedClustersCleanedUp indicates that removed clusters have been cleaned up
+	ConditionRemovedClustersCleanedUp = "RemovedClustersCleanedUp"
 )
 
 // Condition reasons

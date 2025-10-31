@@ -25,6 +25,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/klog/v2"
 	addonv1alpha1 "open-cluster-management.io/api/addon/v1alpha1"
+	appsv1alpha1 "open-cluster-management.io/argocd-pull-integration/api/v1alpha1"
 )
 
 const (
@@ -37,18 +38,21 @@ const (
 
 // EnsureManagedClusterAddon creates the ManagedClusterAddon for a specific cluster
 // This function can be called from external controllers or for each managed cluster
-func (r *GitOpsClusterReconciler) EnsureManagedClusterAddon(ctx context.Context, clusterNamespace string) error {
+func (r *GitOpsClusterReconciler) EnsureManagedClusterAddon(ctx context.Context, clusterNamespace string, gitOpsCluster *appsv1alpha1.GitOpsCluster) error {
 	addonName := types.NamespacedName{
 		Namespace: clusterNamespace,
 		Name:      ArgoCDAgentAddonName,
 	}
+
+	// Get the AddOnTemplate name
+	templateName := fmt.Sprintf("argocd-agent-addon-%s-%s", gitOpsCluster.Namespace, gitOpsCluster.Name)
 
 	// Check if ManagedClusterAddOn already exists
 	existing := &addonv1alpha1.ManagedClusterAddOn{}
 	err := r.Get(ctx, addonName, existing)
 	if err == nil {
 		klog.V(2).InfoS("ManagedClusterAddOn already exists", "namespace", clusterNamespace, "name", ArgoCDAgentAddonName)
-		return r.ensureAddonConfig(ctx, existing)
+		return r.ensureAddonConfig(ctx, existing, templateName, clusterNamespace)
 	}
 
 	if !k8serrors.IsNotFound(err) {
@@ -57,7 +61,7 @@ func (r *GitOpsClusterReconciler) EnsureManagedClusterAddon(ctx context.Context,
 
 	klog.InfoS("Creating ManagedClusterAddOn", "namespace", clusterNamespace, "name", ArgoCDAgentAddonName)
 
-	// Create new ManagedClusterAddOn with config reference
+	// Create new ManagedClusterAddOn with AddOnTemplate and AddOnDeploymentConfig references
 	addon := &addonv1alpha1.ManagedClusterAddOn{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      ArgoCDAgentAddonName,
@@ -69,6 +73,15 @@ func (r *GitOpsClusterReconciler) EnsureManagedClusterAddon(ctx context.Context,
 		},
 		Spec: addonv1alpha1.ManagedClusterAddOnSpec{
 			Configs: []addonv1alpha1.AddOnConfig{
+				{
+					ConfigGroupResource: addonv1alpha1.ConfigGroupResource{
+						Group:    "addon.open-cluster-management.io",
+						Resource: "addontemplates",
+					},
+					ConfigReferent: addonv1alpha1.ConfigReferent{
+						Name: templateName,
+					},
+				},
 				{
 					ConfigGroupResource: addonv1alpha1.ConfigGroupResource{
 						Group:    "addon.open-cluster-management.io",
@@ -95,39 +108,61 @@ func (r *GitOpsClusterReconciler) EnsureManagedClusterAddon(ctx context.Context,
 	return nil
 }
 
-// ensureAddonConfig ensures the addon has the correct config reference
-func (r *GitOpsClusterReconciler) ensureAddonConfig(ctx context.Context, addon *addonv1alpha1.ManagedClusterAddOn) error {
-	expectedConfig := addonv1alpha1.AddOnConfig{
-		ConfigGroupResource: addonv1alpha1.ConfigGroupResource{
-			Group:    "addon.open-cluster-management.io",
-			Resource: "addondeploymentconfigs",
+// ensureAddonConfig ensures the addon has the correct config references (both AddOnTemplate and AddOnDeploymentConfig)
+func (r *GitOpsClusterReconciler) ensureAddonConfig(ctx context.Context, addon *addonv1alpha1.ManagedClusterAddOn, templateName, clusterNamespace string) error {
+	expectedConfigs := []addonv1alpha1.AddOnConfig{
+		{
+			ConfigGroupResource: addonv1alpha1.ConfigGroupResource{
+				Group:    "addon.open-cluster-management.io",
+				Resource: "addontemplates",
+			},
+			ConfigReferent: addonv1alpha1.ConfigReferent{
+				Name: templateName,
+			},
 		},
-		ConfigReferent: addonv1alpha1.ConfigReferent{
-			Name:      ArgoCDAgentAddonConfigName,
-			Namespace: addon.Namespace,
+		{
+			ConfigGroupResource: addonv1alpha1.ConfigGroupResource{
+				Group:    "addon.open-cluster-management.io",
+				Resource: "addondeploymentconfigs",
+			},
+			ConfigReferent: addonv1alpha1.ConfigReferent{
+				Name:      ArgoCDAgentAddonConfigName,
+				Namespace: clusterNamespace,
+			},
 		},
 	}
 
-	// Check if the expected config already exists
-	for _, config := range addon.Spec.Configs {
-		if config.Group == expectedConfig.Group &&
-			config.Resource == expectedConfig.Resource &&
-			config.Name == expectedConfig.Name &&
-			config.Namespace == expectedConfig.Namespace {
-			klog.V(2).InfoS("ManagedClusterAddOn already has correct config reference", "namespace", addon.Namespace)
-			return nil
+	needsUpdate := false
+	for _, expectedConfig := range expectedConfigs {
+		found := false
+		for _, config := range addon.Spec.Configs {
+			if config.Group == expectedConfig.Group &&
+				config.Resource == expectedConfig.Resource &&
+				config.Name == expectedConfig.Name {
+				// Check namespace only if it's set in expected config
+				if expectedConfig.Namespace == "" || config.Namespace == expectedConfig.Namespace {
+					found = true
+					break
+				}
+			}
+		}
+		if !found {
+			addon.Spec.Configs = append(addon.Spec.Configs, expectedConfig)
+			needsUpdate = true
+			klog.InfoS("Adding config reference to ManagedClusterAddOn", "namespace", addon.Namespace, "resource", expectedConfig.Resource)
 		}
 	}
 
-	// Add the config reference
-	klog.InfoS("Adding config reference to ManagedClusterAddOn", "namespace", addon.Namespace)
-	addon.Spec.Configs = append(addon.Spec.Configs, expectedConfig)
+	if !needsUpdate {
+		klog.V(2).InfoS("ManagedClusterAddOn already has correct config references", "namespace", addon.Namespace)
+		return nil
+	}
 
 	if err := r.Update(ctx, addon); err != nil {
 		return fmt.Errorf("failed to update ManagedClusterAddOn config: %w", err)
 	}
 
-	klog.InfoS("Updated ManagedClusterAddOn config reference", "namespace", addon.Namespace)
+	klog.InfoS("Updated ManagedClusterAddOn config references", "namespace", addon.Namespace)
 	return nil
 }
 

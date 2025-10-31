@@ -83,7 +83,15 @@ func TestEnsureManagedClusterAddon(t *testing.T) {
 				Scheme: s,
 			}
 
-			err := r.EnsureManagedClusterAddon(context.Background(), clusterNamespace)
+			// Create a mock GitOpsCluster
+			gitOpsCluster := &appsv1alpha1.GitOpsCluster{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-gitops",
+					Namespace: "test-namespace",
+				},
+			}
+
+			err := r.EnsureManagedClusterAddon(context.Background(), clusterNamespace, gitOpsCluster)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("EnsureManagedClusterAddon() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -295,7 +303,9 @@ func TestEnsureAddonConfig(t *testing.T) {
 				Scheme: s,
 			}
 
-			err := r.ensureAddonConfig(context.Background(), tt.addon)
+			templateName := "argocd-agent-addon-test-namespace-test-gitops"
+			clusterNamespace := "cluster1"
+			err := r.ensureAddonConfig(context.Background(), tt.addon, templateName, clusterNamespace)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("ensureAddonConfig() error = %v, wantErr %v", err, tt.wantErr)
 			}

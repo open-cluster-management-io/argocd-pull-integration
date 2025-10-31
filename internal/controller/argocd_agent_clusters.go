@@ -55,11 +55,12 @@ type ClusterConfig struct {
 func (r *GitOpsClusterReconciler) importManagedClusterToArgoCD(
 	ctx context.Context,
 	argoCDNamespace string,
-	managedCluster *clusterv1.ManagedCluster) error {
+	managedCluster *clusterv1.ManagedCluster,
+	placementName string) error {
 
-	klog.V(2).InfoS("Importing managed cluster to ArgoCD", "cluster", managedCluster.Name, "namespace", argoCDNamespace)
+	klog.V(2).InfoS("Importing managed cluster to ArgoCD", "cluster", managedCluster.Name, "namespace", argoCDNamespace, "placement", placementName)
 
-	if err := r.createArgoCDClusterSecret(ctx, argoCDNamespace, managedCluster); err != nil {
+	if err := r.createArgoCDClusterSecret(ctx, argoCDNamespace, managedCluster, placementName); err != nil {
 		return fmt.Errorf("failed to create ArgoCD cluster secret for %s: %w", managedCluster.Name, err)
 	}
 
@@ -71,7 +72,8 @@ func (r *GitOpsClusterReconciler) importManagedClusterToArgoCD(
 func (r *GitOpsClusterReconciler) createArgoCDClusterSecret(
 	ctx context.Context,
 	argoCDNamespace string,
-	cluster *clusterv1.ManagedCluster) error {
+	cluster *clusterv1.ManagedCluster,
+	placementName string) error {
 
 	secretName := fmt.Sprintf("cluster-%s", cluster.Name)
 
@@ -84,7 +86,7 @@ func (r *GitOpsClusterReconciler) createArgoCDClusterSecret(
 
 	if err == nil {
 		klog.V(2).InfoS("ArgoCD cluster secret already exists", "cluster", cluster.Name, "secret", secretName)
-		return r.updateArgoCDClusterSecret(ctx, argoCDNamespace, existing, cluster)
+		return r.updateArgoCDClusterSecret(ctx, argoCDNamespace, existing, cluster, placementName)
 	}
 
 	if !k8serrors.IsNotFound(err) {
@@ -108,6 +110,7 @@ func (r *GitOpsClusterReconciler) createArgoCDClusterSecret(
 				ArgoCDSecretTypeLabel:                          ArgoCDSecretTypeValue,
 				"apps.open-cluster-management.io/cluster-name": cluster.Name,
 				ArgoCDAgentClusterMappingLabel:                 cluster.Name,
+				"placement-name":                               placementName,
 			},
 		},
 		Type: ArgoCDClusterSecretType,
@@ -122,7 +125,7 @@ func (r *GitOpsClusterReconciler) createArgoCDClusterSecret(
 		return fmt.Errorf("failed to create ArgoCD cluster secret: %w", err)
 	}
 
-	klog.InfoS("Successfully created ArgoCD cluster secret", "cluster", cluster.Name, "secret", secretName)
+	klog.InfoS("Successfully created ArgoCD cluster secret", "cluster", cluster.Name, "secret", secretName, "placement", placementName)
 	return nil
 }
 
@@ -131,15 +134,26 @@ func (r *GitOpsClusterReconciler) updateArgoCDClusterSecret(
 	ctx context.Context,
 	argoCDNamespace string,
 	secret *corev1.Secret,
-	cluster *clusterv1.ManagedCluster) error {
+	cluster *clusterv1.ManagedCluster,
+	placementName string) error {
+
+	needsUpdate := false
 
 	// Update labels
 	if secret.Labels == nil {
 		secret.Labels = make(map[string]string)
 	}
+
+	// Check if placement-name label needs updating
+	if secret.Labels["placement-name"] != placementName {
+		needsUpdate = true
+		klog.InfoS("Placement name changed, updating cluster secret", "cluster", cluster.Name, "old", secret.Labels["placement-name"], "new", placementName)
+	}
+
 	secret.Labels[ArgoCDSecretTypeLabel] = ArgoCDSecretTypeValue
 	secret.Labels["apps.open-cluster-management.io/cluster-name"] = cluster.Name
 	secret.Labels[ArgoCDAgentClusterMappingLabel] = cluster.Name
+	secret.Labels["placement-name"] = placementName
 
 	// Update data
 	secretData, err := r.buildArgoCDClusterSecretData(ctx, argoCDNamespace, cluster)
@@ -152,7 +166,11 @@ func (r *GitOpsClusterReconciler) updateArgoCDClusterSecret(
 		return fmt.Errorf("failed to update ArgoCD cluster secret: %w", err)
 	}
 
-	klog.InfoS("Successfully updated ArgoCD cluster secret", "cluster", cluster.Name)
+	if needsUpdate {
+		klog.InfoS("Successfully updated ArgoCD cluster secret with new placement name", "cluster", cluster.Name, "placement", placementName)
+	} else {
+		klog.V(2).InfoS("Successfully updated ArgoCD cluster secret", "cluster", cluster.Name)
+	}
 	return nil
 }
 

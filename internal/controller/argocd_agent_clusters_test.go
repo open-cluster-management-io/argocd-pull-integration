@@ -76,26 +76,31 @@ func TestClusterConfig(t *testing.T) {
 
 func TestCreateArgoCDClusterSecretLabels(t *testing.T) {
 	tests := []struct {
-		name        string
-		clusterName string
-		wantLabels  map[string]string
+		name          string
+		clusterName   string
+		placementName string
+		wantLabels    map[string]string
 	}{
 		{
-			name:        "cluster1",
-			clusterName: "cluster1",
+			name:          "cluster1 with placement",
+			clusterName:   "cluster1",
+			placementName: "test-placement",
 			wantLabels: map[string]string{
 				ArgoCDSecretTypeLabel:                          ArgoCDSecretTypeValue,
 				"apps.open-cluster-management.io/cluster-name": "cluster1",
 				ArgoCDAgentClusterMappingLabel:                 "cluster1",
+				"placement-name":                               "test-placement",
 			},
 		},
 		{
-			name:        "prod-cluster",
-			clusterName: "prod-cluster",
+			name:          "prod-cluster with placement",
+			clusterName:   "prod-cluster",
+			placementName: "production-placement",
 			wantLabels: map[string]string{
 				ArgoCDSecretTypeLabel:                          ArgoCDSecretTypeValue,
 				"apps.open-cluster-management.io/cluster-name": "prod-cluster",
 				ArgoCDAgentClusterMappingLabel:                 "prod-cluster",
+				"placement-name":                               "production-placement",
 			},
 		},
 	}
@@ -108,11 +113,12 @@ func TestCreateArgoCDClusterSecretLabels(t *testing.T) {
 				},
 			}
 
-			// Simulate building labels
+			// Simulate building labels (as done in createArgoCDClusterSecret)
 			labels := map[string]string{
 				ArgoCDSecretTypeLabel:                          ArgoCDSecretTypeValue,
 				"apps.open-cluster-management.io/cluster-name": cluster.Name,
 				ArgoCDAgentClusterMappingLabel:                 cluster.Name,
+				"placement-name":                               tt.placementName,
 			}
 
 			for key, wantValue := range tt.wantLabels {
@@ -150,6 +156,7 @@ func TestUpdateArgoCDClusterSecretLabels(t *testing.T) {
 		name           string
 		existingSecret *corev1.Secret
 		cluster        *clusterv1.ManagedCluster
+		placementName  string
 		wantLabels     map[string]string
 	}{
 		{
@@ -165,20 +172,23 @@ func TestUpdateArgoCDClusterSecretLabels(t *testing.T) {
 					Name: "test-cluster",
 				},
 			},
+			placementName: "test-placement",
 			wantLabels: map[string]string{
 				ArgoCDSecretTypeLabel:                          ArgoCDSecretTypeValue,
 				"apps.open-cluster-management.io/cluster-name": "test-cluster",
 				ArgoCDAgentClusterMappingLabel:                 "test-cluster",
+				"placement-name":                               "test-placement",
 			},
 		},
 		{
-			name: "update existing labels",
+			name: "update existing labels including placement name change",
 			existingSecret: &corev1.Secret{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "cluster-test",
 					Namespace: "argocd",
 					Labels: map[string]string{
-						"old-label": "old-value",
+						"old-label":      "old-value",
+						"placement-name": "old-placement",
 					},
 				},
 			},
@@ -187,23 +197,26 @@ func TestUpdateArgoCDClusterSecretLabels(t *testing.T) {
 					Name: "test-cluster",
 				},
 			},
+			placementName: "new-placement",
 			wantLabels: map[string]string{
 				ArgoCDSecretTypeLabel:                          ArgoCDSecretTypeValue,
 				"apps.open-cluster-management.io/cluster-name": "test-cluster",
 				ArgoCDAgentClusterMappingLabel:                 "test-cluster",
+				"placement-name":                               "new-placement",
 			},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Simulate label update
+			// Simulate label update (as done in updateArgoCDClusterSecret)
 			if tt.existingSecret.Labels == nil {
 				tt.existingSecret.Labels = make(map[string]string)
 			}
 			tt.existingSecret.Labels[ArgoCDSecretTypeLabel] = ArgoCDSecretTypeValue
 			tt.existingSecret.Labels["apps.open-cluster-management.io/cluster-name"] = tt.cluster.Name
 			tt.existingSecret.Labels[ArgoCDAgentClusterMappingLabel] = tt.cluster.Name
+			tt.existingSecret.Labels["placement-name"] = tt.placementName
 
 			// Verify all expected labels are present
 			for key, wantValue := range tt.wantLabels {
