@@ -86,7 +86,8 @@ func TestImportManagedClusterToArgoCD(t *testing.T) {
 				Scheme: s,
 			}
 
-			err := r.importManagedClusterToArgoCD(context.Background(), namespace, tt.cluster)
+			placementName := "test-placement"
+			err := r.importManagedClusterToArgoCD(context.Background(), namespace, tt.cluster, placementName)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("importManagedClusterToArgoCD() error = %v, wantErr %v", err, tt.wantErr)
 			}
@@ -166,7 +167,8 @@ func TestCreateArgoCDClusterSecret(t *testing.T) {
 				Scheme: s,
 			}
 
-			err := r.createArgoCDClusterSecret(context.Background(), namespace, tt.cluster)
+			placementName := "test-placement"
+			err := r.createArgoCDClusterSecret(context.Background(), namespace, tt.cluster, placementName)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("createArgoCDClusterSecret() error = %v, wantErr %v", err, tt.wantErr)
 			}
@@ -223,7 +225,8 @@ func TestUpdateArgoCDClusterSecret(t *testing.T) {
 				Scheme: s,
 			}
 
-			err := r.updateArgoCDClusterSecret(context.Background(), namespace, tt.secret, tt.cluster)
+			placementName := "test-placement"
+			err := r.updateArgoCDClusterSecret(context.Background(), namespace, tt.secret, tt.cluster, placementName)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("updateArgoCDClusterSecret() error = %v, wantErr %v", err, tt.wantErr)
 			}

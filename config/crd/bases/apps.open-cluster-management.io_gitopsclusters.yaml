@@ -68,9 +68,6 @@ spec:
                     description: PrincipalServerPort is the port of the ArgoCD principal
                       server
                     type: string
-                  uninstall:
-                    description: Uninstall indicates whether to uninstall the addon
-                    type: boolean
                 type: object
               placementRef:
                 description: PlacementRef references a Placement resource to select

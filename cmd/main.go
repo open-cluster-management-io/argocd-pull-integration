@@ -72,7 +72,6 @@ var (
 	ArgoCDAgentServerAddress = ""
 	ArgoCDAgentServerPort    = ""
 	ArgoCDAgentMode          = "managed"
-	ArgoCDAgentUninstall     = false
 )
 
 var (
@@ -104,7 +103,7 @@ func main() {
 	var enableHTTP2 bool
 	var tlsOpts []func(*tls.Config)
 
-	flag.StringVar(&mode, "mode", "controller", "Mode to run: controller or addon")
+	flag.StringVar(&mode, "mode", "controller", "Mode to run: controller, addon, or cleanup")
 	flag.StringVar(&metricsAddr, "metrics-bind-address", "0", "The address the metrics endpoint binds to. "+
 		"Use :8443 for HTTPS or :8080 for HTTP, or leave as 0 to disable the metrics service.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
@@ -140,6 +139,12 @@ func main() {
 	// Check if running in addon mode
 	if mode == "addon" {
 		runAddonMode()
+		return
+	}
+
+	// Check if running in cleanup mode
+	if mode == "cleanup" {
+		runCleanupMode()
 		return
 	}
 
@@ -295,10 +300,6 @@ func runAddonMode() {
 		ArgoCDAgentMode = newArgoCDAgentMode
 	}
 
-	if newArgoCDAgentUninstall, found := os.LookupEnv("ARGOCD_AGENT_UNINSTALL"); found && newArgoCDAgentUninstall == "true" {
-		ArgoCDAgentUninstall = true
-	}
-
 	setupLog.Info("Addon mode settings",
 		"syncInterval", addonOptions.SyncInterval,
 		"leaseDuration", addonOptions.LeaderElectionLeaseDuration,
@@ -309,7 +310,6 @@ func runAddonMode() {
 		"ArgoCDAgentServerAddress", ArgoCDAgentServerAddress,
 		"ArgoCDAgentServerPort", ArgoCDAgentServerPort,
 		"ArgoCDAgentMode", ArgoCDAgentMode,
-		"ArgoCDAgentUninstall", ArgoCDAgentUninstall,
 	)
 
 	// Create a new manager for addon mode
@@ -331,7 +331,7 @@ func runAddonMode() {
 
 	// Setup the addon with the manager
 	if err = addon.SetupWithManager(mgr, addonOptions.SyncInterval,
-		ArgoCDOperatorImage, ArgoCDAgentImage, ArgoCDAgentServerAddress, ArgoCDAgentServerPort, ArgoCDAgentMode, ArgoCDAgentUninstall); err != nil {
+		ArgoCDOperatorImage, ArgoCDAgentImage, ArgoCDAgentServerAddress, ArgoCDAgentServerPort, ArgoCDAgentMode); err != nil {
 		setupLog.Error(err, "unable to create addon controller")
 		os.Exit(1)
 	}
@@ -339,6 +339,50 @@ func runAddonMode() {
 	setupLog.Info("starting addon manager")
 	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
 		setupLog.Error(err, "problem running addon manager")
+		os.Exit(1)
+	}
+}
+
+// runCleanupMode runs the application in cleanup mode for pre-delete hook
+func runCleanupMode() {
+	setupLog.Info("Starting in cleanup mode")
+
+	// Read environment variables for cleanup configuration
+	if newArgoCDOperatorImage, found := os.LookupEnv("ARGOCD_OPERATOR_IMAGE"); found && newArgoCDOperatorImage != "" {
+		ArgoCDOperatorImage = newArgoCDOperatorImage
+	}
+
+	if newArgoCDAgentImage, found := os.LookupEnv("ARGOCD_AGENT_IMAGE"); found && newArgoCDAgentImage != "" {
+		ArgoCDAgentImage = newArgoCDAgentImage
+	}
+
+	setupLog.Info("Cleanup mode settings",
+		"ArgoCDOperatorImage", ArgoCDOperatorImage,
+		"ArgoCDAgentImage", ArgoCDAgentImage,
+	)
+
+	// Create a manager for cleanup mode (no leader election for cleanup job)
+	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
+		Scheme: scheme,
+		Metrics: metricsserver.Options{
+			BindAddress: "0", // Disable metrics in cleanup mode
+		},
+		LeaderElection: false, // Cleanup job doesn't need leader election
+	})
+	if err != nil {
+		setupLog.Error(err, "unable to start cleanup manager")
+		os.Exit(1)
+	}
+
+	// Setup the cleanup with the manager
+	if err = addon.SetupCleanupWithManager(mgr, ArgoCDOperatorImage, ArgoCDAgentImage); err != nil {
+		setupLog.Error(err, "unable to create cleanup controller")
+		os.Exit(1)
+	}
+
+	setupLog.Info("starting cleanup manager")
+	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
+		setupLog.Error(err, "problem running cleanup manager")
 		os.Exit(1)
 	}
 }

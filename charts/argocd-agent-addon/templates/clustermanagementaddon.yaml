@@ -11,5 +11,3 @@ spec:
     resource: addondeploymentconfigs
   - group: addon.open-cluster-management.io
     resource: addontemplates
-    defaultConfig:
-      name: argocd-agent-addon

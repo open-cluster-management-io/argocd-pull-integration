@@ -88,7 +88,6 @@ func TestArgoCDAgentAddonSpec(t *testing.T) {
 				Mode:                   "managed",
 				OperatorImage:          "quay.io/operator:v1.0.0",
 				AgentImage:             "quay.io/agent:v1.0.0",
-				Uninstall:              false,
 			},
 		},
 		{
@@ -103,9 +102,7 @@ func TestArgoCDAgentAddonSpec(t *testing.T) {
 		},
 		{
 			name: "uninstall mode",
-			spec: ArgoCDAgentAddonSpec{
-				Uninstall: true,
-			},
+			spec: ArgoCDAgentAddonSpec{},
 		},
 	}
 
