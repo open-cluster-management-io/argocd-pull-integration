@@ -33,6 +33,9 @@ spec:
         args:
         - --mode=controller
         - --leader-elect
+        env:
+        - name: CONTROLLER_IMAGE
+          value: "{{ .Values.image }}:{{ .Values.tag }}"
         securityContext:
           readOnlyRootFilesystem: true
           allowPrivilegeEscalation: false

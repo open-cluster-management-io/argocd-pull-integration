@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -32,8 +33,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
+	k8serrors "k8s.io/apimachinery/pkg/api/errors"
+	addonv1alpha1 "open-cluster-management.io/api/addon/v1alpha1"
 	clusterv1 "open-cluster-management.io/api/cluster/v1"
 	clusterv1beta1 "open-cluster-management.io/api/cluster/v1beta1"
+	workv1 "open-cluster-management.io/api/work/v1"
 	appsv1alpha1 "open-cluster-management.io/argocd-pull-integration/api/v1alpha1"
 )
 
@@ -53,9 +57,11 @@ type GitOpsClusterReconciler struct {
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles;rolebindings,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=addon.open-cluster-management.io,resources=managedclusteraddons,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=addon.open-cluster-management.io,resources=addondeploymentconfigs,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=addon.open-cluster-management.io,resources=addontemplates,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=cluster.open-cluster-management.io,resources=managedclusters,verbs=get;list;watch
-// +kubebuilder:rbac:groups=cluster.open-cluster-management.io,resources=placements,verbs=get;list;watch
+// +kubebuilder:rbac:groups=cluster.open-cluster-management.io,resources=placements,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups=cluster.open-cluster-management.io,resources=placementdecisions,verbs=get;list;watch
+// +kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch
 // +kubebuilder:rbac:groups=work.open-cluster-management.io,resources=manifestworks,verbs=get;list;watch;create;update;patch;delete
 
 func (r *GitOpsClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -164,7 +170,17 @@ func (r *GitOpsClusterReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	r.setCondition(ctx, gitOpsCluster, appsv1alpha1.ConditionResourceProxyCertificateReady, metav1.ConditionTrue,
 		appsv1alpha1.ReasonSuccess, "Resource proxy certificate generated successfully")
 
-	// 6) Evaluate placement
+	// 6) Create or update AddOnTemplate for this GitOpsCluster
+	if err := r.EnsureAddOnTemplate(ctx, gitOpsCluster); err != nil {
+		klog.ErrorS(err, "Failed to ensure AddOnTemplate")
+		r.setCondition(ctx, gitOpsCluster, appsv1alpha1.ConditionAddOnTemplateReady, metav1.ConditionFalse,
+			appsv1alpha1.ReasonFailed, fmt.Sprintf("Failed to ensure AddOnTemplate: %v", err))
+		return ctrl.Result{}, err
+	}
+	r.setCondition(ctx, gitOpsCluster, appsv1alpha1.ConditionAddOnTemplateReady, metav1.ConditionTrue,
+		appsv1alpha1.ReasonSuccess, "AddOnTemplate created/updated successfully")
+
+	// 7) Evaluate placement and ensure tolerations
 	managedClusters, err := r.getManagedClustersFromPlacement(ctx, gitOpsCluster)
 	if err != nil {
 		klog.ErrorS(err, "Failed to get managed clusters from placement",
@@ -183,11 +199,12 @@ func (r *GitOpsClusterReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 			appsv1alpha1.ReasonSuccess, fmt.Sprintf("Evaluated %d managed clusters", len(managedClusters)))
 	}
 
-	// 7) For each cluster, import OCM managed cluster to ArgoCD
+	// 8) For each cluster, import OCM managed cluster to ArgoCD
 	if len(managedClusters) > 0 {
 		failedImportClusters := []string{}
+		placementName := gitOpsCluster.Spec.PlacementRef.Name
 		for _, managedCluster := range managedClusters {
-			if err := r.importManagedClusterToArgoCD(ctx, argoCDNamespace, managedCluster); err != nil {
+			if err := r.importManagedClusterToArgoCD(ctx, argoCDNamespace, managedCluster, placementName); err != nil {
 				klog.ErrorS(err, "Failed to import managed cluster to ArgoCD", "cluster", managedCluster.Name)
 				failedImportClusters = append(failedImportClusters, managedCluster.Name)
 			}
@@ -202,7 +219,7 @@ func (r *GitOpsClusterReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		}
 	}
 
-	// 8) Create the manifestwork for the argocd-agent-ca
+	// 9) Create the manifestwork for the argocd-agent-ca
 	if len(managedClusters) > 0 {
 		failedMWClusters := []string{}
 		for _, managedCluster := range managedClusters {
@@ -221,7 +238,20 @@ func (r *GitOpsClusterReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		}
 	}
 
-	// 9) Finally create the addon config and addon in each managedcluster namespace
+	// 10) Clean up addons for clusters no longer in placement
+	clustersRemoved, err := r.cleanupRemovedClusters(ctx, gitOpsCluster, managedClusters)
+	if err != nil {
+		klog.ErrorS(err, "Failed to cleanup removed clusters")
+		r.setCondition(ctx, gitOpsCluster, appsv1alpha1.ConditionRemovedClustersCleanedUp, metav1.ConditionFalse,
+			appsv1alpha1.ReasonFailed, fmt.Sprintf("Failed to cleanup removed clusters: %v", err))
+		// Continue - don't fail the reconciliation
+	} else if clustersRemoved > 0 {
+		// Only set the condition if clusters were actually removed
+		r.setCondition(ctx, gitOpsCluster, appsv1alpha1.ConditionRemovedClustersCleanedUp, metav1.ConditionTrue,
+			appsv1alpha1.ReasonSuccess, fmt.Sprintf("Cleaned up %d removed cluster(s)", clustersRemoved))
+	}
+
+	// 11) Finally create the addon config and addon in each managedcluster namespace
 	if len(managedClusters) > 0 {
 		failedAddonClusters := []string{}
 		for _, managedCluster := range managedClusters {
@@ -234,7 +264,7 @@ func (r *GitOpsClusterReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 			}
 
 			// Create ManagedClusterAddon
-			if err := r.EnsureManagedClusterAddon(ctx, managedCluster.Name); err != nil {
+			if err := r.EnsureManagedClusterAddon(ctx, managedCluster.Name, gitOpsCluster); err != nil {
 				klog.ErrorS(err, "Failed to ensure ManagedClusterAddon", "cluster", managedCluster.Name)
 				failedAddonClusters = append(failedAddonClusters, managedCluster.Name)
 				continue
@@ -276,6 +306,17 @@ func (r *GitOpsClusterReconciler) getManagedClustersFromPlacement(
 		return nil, fmt.Errorf("failed to get Placement: %w", err)
 	}
 
+	// Ensure placement has required tolerations
+	if err := r.ensurePlacementTolerations(ctx, placement, gitOpsCluster); err != nil {
+		klog.ErrorS(err, "Failed to ensure placement tolerations", "placement", placement.Name)
+		r.setCondition(ctx, gitOpsCluster, appsv1alpha1.ConditionPlacementTolerationConfigured, metav1.ConditionFalse,
+			appsv1alpha1.ReasonFailed, fmt.Sprintf("Failed to configure placement tolerations: %v", err))
+		// Don't fail - just log the error and continue
+	} else {
+		r.setCondition(ctx, gitOpsCluster, appsv1alpha1.ConditionPlacementTolerationConfigured, metav1.ConditionTrue,
+			appsv1alpha1.ReasonSuccess, "Placement tolerations configured successfully")
+	}
+
 	// List PlacementDecisions for this Placement
 	placementDecisionList := &clusterv1beta1.PlacementDecisionList{}
 	err = r.List(ctx, placementDecisionList,
@@ -305,6 +346,116 @@ func (r *GitOpsClusterReconciler) getManagedClustersFromPlacement(
 	return managedClusters, nil
 }
 
+// cleanupRemovedClusters removes addons from clusters that are no longer in the placement
+// Returns the number of clusters that were cleaned up
+func (r *GitOpsClusterReconciler) cleanupRemovedClusters(ctx context.Context, gitOpsCluster *appsv1alpha1.GitOpsCluster, currentClusters []*clusterv1.ManagedCluster) (int, error) {
+	// Create a set of current cluster names for quick lookup
+	currentClusterNames := make(map[string]bool)
+	for _, cluster := range currentClusters {
+		currentClusterNames[cluster.Name] = true
+	}
+
+	// List all ManagedClusterAddons with our label across all namespaces
+	addonList := &addonv1alpha1.ManagedClusterAddOnList{}
+	if err := r.List(ctx, addonList, client.MatchingLabels{
+		"app.kubernetes.io/managed-by": "argocd-pull-integration",
+	}); err != nil {
+		return 0, fmt.Errorf("failed to list ManagedClusterAddons: %w", err)
+	}
+
+	clustersRemoved := 0
+	argoCDNamespace := gitOpsCluster.Namespace
+
+	// Delete addons for clusters not in current placement
+	for _, addon := range addonList.Items {
+		clusterName := addon.Namespace
+		if addon.Name == ArgoCDAgentAddonName && !currentClusterNames[clusterName] {
+			klog.InfoS("Deleting ManagedClusterAddon for removed cluster", "cluster", clusterName)
+
+			// Delete the addon
+			if err := r.Delete(ctx, &addon); err != nil && !k8serrors.IsNotFound(err) {
+				klog.ErrorS(err, "Failed to delete ManagedClusterAddon", "cluster", clusterName)
+				continue
+			}
+
+			// NOTE: Do NOT delete the AddOnDeploymentConfig here.
+			// The addon framework's finalizer needs it to run the cleanup job on the spoke.
+			// The config will be cleaned up when the ManagedClusterAddon is fully deleted,
+			// or when the GitOpsCluster is deleted (if set as owner).
+
+			// Also delete ManifestWork
+			manifestWorkName := types.NamespacedName{
+				Namespace: clusterName,
+				Name:      fmt.Sprintf("argocd-agent-ca-%s", gitOpsCluster.Namespace),
+			}
+			manifestWork := &workv1.ManifestWork{}
+			if err := r.Get(ctx, manifestWorkName, manifestWork); err == nil {
+				if err := r.Delete(ctx, manifestWork); err != nil && !k8serrors.IsNotFound(err) {
+					klog.ErrorS(err, "Failed to delete ManifestWork", "cluster", clusterName)
+				}
+			}
+
+			// Also delete the ArgoCD cluster secret
+			clusterSecretName := types.NamespacedName{
+				Namespace: argoCDNamespace,
+				Name:      fmt.Sprintf("cluster-%s", clusterName),
+			}
+			clusterSecret := &corev1.Secret{}
+			if err := r.Get(ctx, clusterSecretName, clusterSecret); err == nil {
+				if err := r.Delete(ctx, clusterSecret); err != nil && !k8serrors.IsNotFound(err) {
+					klog.ErrorS(err, "Failed to delete ArgoCD cluster secret", "cluster", clusterName)
+				}
+			}
+
+			klog.InfoS("Successfully deleted resources for removed cluster", "cluster", clusterName)
+			clustersRemoved++
+		}
+	}
+
+	return clustersRemoved, nil
+}
+
+// ensurePlacementTolerations ensures the placement has required tolerations for unreachable/unavailable clusters
+func (r *GitOpsClusterReconciler) ensurePlacementTolerations(ctx context.Context, placement *clusterv1beta1.Placement, gitOpsCluster *appsv1alpha1.GitOpsCluster) error {
+	requiredTolerations := []clusterv1beta1.Toleration{
+		{
+			Key:      "cluster.open-cluster-management.io/unreachable",
+			Operator: clusterv1beta1.TolerationOpExists,
+		},
+		{
+			Key:      "cluster.open-cluster-management.io/unavailable",
+			Operator: clusterv1beta1.TolerationOpExists,
+		},
+	}
+
+	needsUpdate := false
+	for _, reqTol := range requiredTolerations {
+		found := false
+		for _, existingTol := range placement.Spec.Tolerations {
+			if existingTol.Key == reqTol.Key && existingTol.Operator == reqTol.Operator {
+				found = true
+				break
+			}
+		}
+		if !found {
+			placement.Spec.Tolerations = append(placement.Spec.Tolerations, reqTol)
+			needsUpdate = true
+			klog.InfoS("Adding required toleration to placement", "placement", placement.Name, "toleration", reqTol.Key)
+		}
+	}
+
+	if needsUpdate {
+		if err := r.Update(ctx, placement); err != nil {
+			return fmt.Errorf("failed to update placement with tolerations: %w", err)
+		}
+		klog.InfoS("Updated placement with required tolerations", "placement", placement.Name)
+	} else {
+		klog.V(2).InfoS("Placement already has required tolerations", "placement", placement.Name)
+	}
+
+	return nil
+}
+
 // buildAddonVariables builds the variables for AddOnDeploymentConfig from GitOpsCluster spec
 func (r *GitOpsClusterReconciler) buildAddonVariables(
 	gitOpsCluster *appsv1alpha1.GitOpsCluster,
@@ -331,13 +482,6 @@ func (r *GitOpsClusterReconciler) buildAddonVariables(
 		variables["ARGOCD_AGENT_IMAGE"] = gitOpsCluster.Spec.ArgoCDAgentAddon.AgentImage
 	}
 
-	// Add uninstall flag if set
-	if gitOpsCluster.Spec.ArgoCDAgentAddon.Uninstall {
-		variables["ARGOCD_AGENT_UNINSTALL"] = "true"
-	} else {
-		variables["ARGOCD_AGENT_UNINSTALL"] = "false"
-	}
-
 	return variables
 }
 
@@ -348,6 +492,8 @@ func (r *GitOpsClusterReconciler) initializeConditions(
 	gitOpsCluster *appsv1alpha1.GitOpsCluster) {
 
 	// List of all conditions that should be tracked
+	// Note: ConditionRemovedClustersCleanedUp is intentionally NOT initialized here
+	// as it should only appear when clusters are actually removed
 	conditionTypes := []string{
 		appsv1alpha1.ConditionRBACReady,
 		appsv1alpha1.ConditionServerDiscovered,
@@ -355,6 +501,8 @@ func (r *GitOpsClusterReconciler) initializeConditions(
 		appsv1alpha1.ConditionCACertificateReady,
 		appsv1alpha1.ConditionPrincipalCertificateReady,
 		appsv1alpha1.ConditionResourceProxyCertificateReady,
+		appsv1alpha1.ConditionPlacementTolerationConfigured,
+		appsv1alpha1.ConditionAddOnTemplateReady,
 		appsv1alpha1.ConditionPlacementEvaluated,
 		appsv1alpha1.ConditionClustersImported,
 		appsv1alpha1.ConditionManifestWorkCreated,

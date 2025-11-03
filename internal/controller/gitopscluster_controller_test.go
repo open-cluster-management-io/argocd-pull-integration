@@ -104,7 +104,6 @@ func TestBuildAddonVariables(t *testing.T) {
 				"ARGOCD_AGENT_SERVER_ADDRESS": "argocd-server.argocd.svc",
 				"ARGOCD_AGENT_SERVER_PORT":    "8080",
 				"ARGOCD_AGENT_MODE":           "managed",
-				"ARGOCD_AGENT_UNINSTALL":      "false",
 			},
 		},
 		{
@@ -130,20 +129,17 @@ func TestBuildAddonVariables(t *testing.T) {
 				"ARGOCD_AGENT_MODE":           "autonomous",
 				"ARGOCD_OPERATOR_IMAGE":       "quay.io/operator:v1.0.0",
 				"ARGOCD_AGENT_IMAGE":          "quay.io/agent:v2.0.0",
-				"ARGOCD_AGENT_UNINSTALL":      "false",
 			},
 		},
 		{
-			name: "with uninstall flag",
+			name: "minimal configuration",
 			gitOpsCluster: &appsv1alpha1.GitOpsCluster{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-cluster",
 					Namespace: "argocd",
 				},
 				Spec: appsv1alpha1.GitOpsClusterSpec{
-					ArgoCDAgentAddon: appsv1alpha1.ArgoCDAgentAddonSpec{
-						Uninstall: true,
-					},
+					ArgoCDAgentAddon: appsv1alpha1.ArgoCDAgentAddonSpec{},
 				},
 			},
 			serverAddress: "argocd-server.argocd.svc",
@@ -151,7 +147,6 @@ func TestBuildAddonVariables(t *testing.T) {
 			wantVars: map[string]string{
 				"ARGOCD_AGENT_SERVER_ADDRESS": "argocd-server.argocd.svc",
 				"ARGOCD_AGENT_SERVER_PORT":    "8080",
-				"ARGOCD_AGENT_UNINSTALL":      "true",
 			},
 		},
 	}
@@ -272,7 +267,7 @@ func TestInitializeConditions(t *testing.T) {
 		{
 			name:               "initializes all conditions when none exist",
 			existingConditions: []metav1.Condition{},
-			wantConditionCount: 10, // All 10 conditions should be initialized
+			wantConditionCount: 12, // All 12 conditions should be initialized
 		},
 		{
 			name: "keeps existing conditions and adds missing ones",
@@ -288,7 +283,7 @@ func TestInitializeConditions(t *testing.T) {
 					Reason: appsv1alpha1.ReasonSuccess,
 				},
 			},
-			wantConditionCount: 10, // Should add 8 more conditions
+			wantConditionCount: 12, // Should add 10 more conditions
 		},
 		{
 			name: "does not modify when all conditions exist",
@@ -299,12 +294,14 @@ func TestInitializeConditions(t *testing.T) {
 				{Type: appsv1alpha1.ConditionCACertificateReady, Status: metav1.ConditionTrue, Reason: appsv1alpha1.ReasonSuccess},
 				{Type: appsv1alpha1.ConditionPrincipalCertificateReady, Status: metav1.ConditionTrue, Reason: appsv1alpha1.ReasonSuccess},
 				{Type: appsv1alpha1.ConditionResourceProxyCertificateReady, Status: metav1.ConditionTrue, Reason: appsv1alpha1.ReasonSuccess},
+				{Type: appsv1alpha1.ConditionPlacementTolerationConfigured, Status: metav1.ConditionTrue, Reason: appsv1alpha1.ReasonSuccess},
+				{Type: appsv1alpha1.ConditionAddOnTemplateReady, Status: metav1.ConditionTrue, Reason: appsv1alpha1.ReasonSuccess},
 				{Type: appsv1alpha1.ConditionPlacementEvaluated, Status: metav1.ConditionTrue, Reason: appsv1alpha1.ReasonSuccess},
 				{Type: appsv1alpha1.ConditionClustersImported, Status: metav1.ConditionTrue, Reason: appsv1alpha1.ReasonSuccess},
 				{Type: appsv1alpha1.ConditionManifestWorkCreated, Status: metav1.ConditionTrue, Reason: appsv1alpha1.ReasonSuccess},
 				{Type: appsv1alpha1.ConditionAddonConfigured, Status: metav1.ConditionTrue, Reason: appsv1alpha1.ReasonSuccess},
 			},
-			wantConditionCount: 10, // Should keep all 10
+			wantConditionCount: 12, // Should keep all 12 (RemovedClustersCleanedUp is not initialized by default)
 		},
 	}
 

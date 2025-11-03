@@ -24,15 +24,8 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/klog/v2"
-	"sigs.k8s.io/controller-runtime/pkg/client"
-)
-
-const (
-	operatorNamespace = "argocd-operator-system"
-	argoCDNamespace   = "argocd"
 )
 
 // Default images (used when not specified)
@@ -188,124 +181,6 @@ func ParseImageReference(imageRef string) (string, string, error) {
 
 	// If no tag or digest found, assume "latest"
 	return imageRef, "latest", nil
-}
-
-// uninstallArgoCDAgent uninstalls the ArgoCD agent addon in reverse order
-// Does NOT delete namespaces, only deletes operator after ArgoCD CR is gone
-func (r *ArgoCDAgentAddonReconciler) uninstallArgoCDAgent(ctx context.Context) error {
-	klog.Info("Starting ArgoCD agent addon uninstall")
-
-	// Step 1: Delete ArgoCD CR first (if exists)
-	// The operator will handle the cleanup of ArgoCD resources
-	argoCD := &unstructured.Unstructured{}
-	argoCD.SetAPIVersion("argoproj.io/v1beta1")
-	argoCD.SetKind("ArgoCD")
-	argoCDKey := types.NamespacedName{
-		Name:      "argocd",
-		Namespace: argoCDNamespace,
-	}
-
-	err := r.Get(ctx, argoCDKey, argoCD)
-	if err == nil {
-		// ArgoCD CR exists, delete it
-		klog.Info("Deleting ArgoCD CR")
-		if err := r.Delete(ctx, argoCD); err != nil && !errors.IsNotFound(err) {
-			return fmt.Errorf("failed to delete ArgoCD CR: %w", err)
-		}
-		klog.Info("ArgoCD CR deletion initiated, operator will reconcile the cleanup")
-
-		// Don't proceed to delete operator yet - the CR still exists (being deleted)
-		// The operator needs to run to finalize the ArgoCD deletion
-		klog.Info("Waiting for ArgoCD CR to be fully deleted before removing operator")
-		return nil
-	} else if !errors.IsNotFound(err) {
-		return fmt.Errorf("failed to check ArgoCD CR: %w", err)
-	}
-
-	// Step 2: ArgoCD CR is gone, now we can delete operator resources
-	klog.Info("ArgoCD CR not found, proceeding to delete operator resources")
-
-	// Delete operator deployment and related resources
-	// We don't use the helm chart for deletion, we delete resources with our label
-	if err := r.deleteOperatorResources(ctx); err != nil {
-		return fmt.Errorf("failed to delete operator resources: %w", err)
-	}
-
-	klog.Info("Successfully completed ArgoCD agent addon uninstall")
-	return nil
-}
-
-// deleteOperatorResources deletes operator resources (deployment, RBAC, etc.)
-func (r *ArgoCDAgentAddonReconciler) deleteOperatorResources(ctx context.Context) error {
-	klog.Info("Deleting operator resources")
-
-	// Delete resources in the operator namespace with our management label
-	resourceTypes := []struct {
-		kind       string
-		apiVersion string
-	}{
-		{"Deployment", "apps/v1"},
-		{"Service", "v1"},
-		{"ServiceAccount", "v1"},
-		{"ConfigMap", "v1"},
-		{"RoleBinding", "rbac.authorization.k8s.io/v1"},
-		{"Role", "rbac.authorization.k8s.io/v1"},
-	}
-
-	for _, rt := range resourceTypes {
-		list := &unstructured.UnstructuredList{}
-		list.SetAPIVersion(rt.apiVersion)
-		list.SetKind(rt.kind + "List")
-
-		err := r.List(ctx, list,
-			client.InNamespace(operatorNamespace),
-			client.MatchingLabels{"app.kubernetes.io/managed-by": "argocd-agent-addon"})
-
-		if err != nil {
-			klog.Warningf("Failed to list %s in namespace %s: %v", rt.kind, operatorNamespace, err)
-			continue
-		}
-
-		for _, item := range list.Items {
-			klog.V(1).Infof("Deleting %s/%s in namespace %s", rt.kind, item.GetName(), operatorNamespace)
-			if err := r.Delete(ctx, &item); err != nil && !errors.IsNotFound(err) {
-				klog.Warningf("Failed to delete %s/%s: %v", rt.kind, item.GetName(), err)
-			}
-		}
-	}
-
-	// Delete cluster-scoped resources
-	clusterResourceTypes := []struct {
-		kind       string
-		apiVersion string
-	}{
-		{"ClusterRoleBinding", "rbac.authorization.k8s.io/v1"},
-		{"ClusterRole", "rbac.authorization.k8s.io/v1"},
-	}
-
-	for _, rt := range clusterResourceTypes {
-		list := &unstructured.UnstructuredList{}
-		list.SetAPIVersion(rt.apiVersion)
-		list.SetKind(rt.kind + "List")
-
-		err := r.List(ctx, list,
-			client.MatchingLabels{"app.kubernetes.io/managed-by": "argocd-agent-addon"})
-
-		if err != nil {
-			klog.Warningf("Failed to list %s: %v", rt.kind, err)
-			continue
-		}
-
-		for _, item := range list.Items {
-			klog.V(1).Infof("Deleting %s/%s", rt.kind, item.GetName())
-			if err := r.Delete(ctx, &item); err != nil && !errors.IsNotFound(err) {
-				klog.Warningf("Failed to delete %s/%s: %v", rt.kind, item.GetName(), err)
-			}
-		}
-	}
-
-	klog.Info("Operator resources deletion completed")
-	return nil
 }
 
 // copyClientCertificate copies the OCM client certificate to the ArgoCD namespace as a TLS secret

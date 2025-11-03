@@ -621,6 +621,8 @@ func TestConditionInitializationOnReconcile(t *testing.T) {
 	r.initializeConditions(context.Background(), gitOpsCluster)
 
 	// Verify all conditions are initialized
+	// Note: ConditionRemovedClustersCleanedUp is not initialized by default
+	// as it should only appear when clusters are actually removed
 	expectedConditions := []string{
 		appsv1alpha1.ConditionRBACReady,
 		appsv1alpha1.ConditionServerDiscovered,
@@ -628,6 +630,8 @@ func TestConditionInitializationOnReconcile(t *testing.T) {
 		appsv1alpha1.ConditionCACertificateReady,
 		appsv1alpha1.ConditionPrincipalCertificateReady,
 		appsv1alpha1.ConditionResourceProxyCertificateReady,
+		appsv1alpha1.ConditionPlacementTolerationConfigured,
+		appsv1alpha1.ConditionAddOnTemplateReady,
 		appsv1alpha1.ConditionPlacementEvaluated,
 		appsv1alpha1.ConditionClustersImported,
 		appsv1alpha1.ConditionManifestWorkCreated,

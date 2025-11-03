@@ -3,4 +3,4 @@ appVersion: 0.1.0
 description: Argo CD Agent Addon for Open Cluster Management
 name: argocd-agent-addon
 type: application
-version: 0.22.0
+version: 0.23.0

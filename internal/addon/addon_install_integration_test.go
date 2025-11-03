@@ -351,7 +351,6 @@ func TestReconcilerConfiguration(t *testing.T) {
 			reconciler: &ArgoCDAgentAddonReconciler{
 				ArgoCDOperatorImage: "quay.io/operator:latest",
 				ArgoCDAgentImage:    "quay.io/agent:latest",
-				Uninstall:           false,
 			},
 			uninstall: false,
 		},
@@ -360,7 +359,6 @@ func TestReconcilerConfiguration(t *testing.T) {
 			reconciler: &ArgoCDAgentAddonReconciler{
 				ArgoCDOperatorImage: "quay.io/operator:latest",
 				ArgoCDAgentImage:    "quay.io/agent:latest",
-				Uninstall:           true,
 			},
 			uninstall: true,
 		},
@@ -372,9 +370,6 @@ func TestReconcilerConfiguration(t *testing.T) {
 			tt.reconciler.Scheme = s
 
 			// Verify the reconciler configuration
-			if tt.reconciler.Uninstall != tt.uninstall {
-				t.Errorf("Uninstall flag = %v, want %v", tt.reconciler.Uninstall, tt.uninstall)
-			}
 			if tt.reconciler.ArgoCDOperatorImage == "" {
 				t.Error("OperatorImage should be set")
 			}

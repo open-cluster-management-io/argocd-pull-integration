@@ -6,6 +6,8 @@ metadata:
 spec:
   controller:
     enabled: false
+  applicationSet:
+    enabled: true
   argoCDAgent:
     principal:
       enabled: true

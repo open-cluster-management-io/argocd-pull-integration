@@ -85,7 +85,6 @@ func TestArgoCDAgentAddonReconciler(t *testing.T) {
 				ArgoCDAgentServerAddress: tt.serverAddress,
 				ArgoCDAgentServerPort:    tt.serverPort,
 				ArgoCDAgentMode:          tt.mode,
-				Uninstall:                tt.uninstall,
 			}
 
 			// Verify the reconciler is properly configured
@@ -106,9 +105,6 @@ func TestArgoCDAgentAddonReconciler(t *testing.T) {
 			}
 			if r.ArgoCDAgentMode != tt.mode {
 				t.Errorf("Mode = %v, want %v", r.ArgoCDAgentMode, tt.mode)
-			}
-			if r.Uninstall != tt.uninstall {
-				t.Errorf("Uninstall = %v, want %v", r.Uninstall, tt.uninstall)
 			}
 		})
 	}

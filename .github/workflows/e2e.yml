@@ -77,3 +77,62 @@ jobs:
         env:
           KUBECONFIG: /home/runner/.kube/config
         run: make test-e2e
+
+  e2e-cleanup:
+    name: e2e-cleanup
+    runs-on: ubuntu-latest
+    steps:
+      - name: checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          path: go/src/open-cluster-management.io/argocd-pull-integration
+
+      - name: install Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Add GOPATH/bin to PATH
+        run: echo "$GOPATH/bin" >> "$GITHUB_PATH"
+
+      - name: install imagebuilder
+        run: go install github.com/openshift/imagebuilder/cmd/imagebuilder@v1.2.3
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.15.2
+
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v4
+        with:
+          version: v1.29.0
+
+      - name: build-images
+        run: make build-images
+
+      - name: setup kind (cluster1)
+        uses: engineerd/setup-kind@v0.5.0
+        with:
+          version: v0.14.0
+          name: cluster1
+
+      - name: setup kind (hub)
+        uses: engineerd/setup-kind@v0.5.0
+        with:
+          version: v0.14.0
+          name: hub
+
+      - name: Load image on the nodes of the hub
+        run: |
+          kind load docker-image --name=hub quay.io/open-cluster-management/argocd-pull-integration:latest
+
+      - name: Load image on the nodes of the cluster1
+        run: |
+          kind load docker-image --name=cluster1 quay.io/open-cluster-management/argocd-pull-integration:latest
+
+      - name: Run e2e cleanup test
+        env:
+          KUBECONFIG: /home/runner/.kube/config
+        run: make test-e2e-cleanup
