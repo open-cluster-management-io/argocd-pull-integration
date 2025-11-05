@@ -396,10 +396,10 @@ func TestParseImageReferenceEdgeCases(t *testing.T) {
 			wantErr:  false,
 		},
 		{
-			name:     "very long tag defaults to latest",
+			name:     "very long tag is parsed correctly",
 			imageRef: "myimage:this-is-a-very-long-tag-name-with-many-characters",
-			wantRepo: "myimage:this-is-a-very-long-tag-name-with-many-characters",
-			wantTag:  "latest",
+			wantRepo: "myimage",
+			wantTag:  "this-is-a-very-long-tag-name-with-many-characters",
 			wantErr:  false,
 		},
 		{
