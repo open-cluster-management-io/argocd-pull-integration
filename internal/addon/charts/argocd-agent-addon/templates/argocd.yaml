@@ -9,14 +9,16 @@ spec:
   argoCDAgent:
     agent:
       enabled: true
+      creds: "mtls:open-cluster-management:cluster:([^:]+):addon:argocd-agent"
+      logLevel: "info"
+      logFormat: "text"
+      image: {{ .Values.global.argoCDAgent.image }}:{{ .Values.global.argoCDAgent.tag }}
       client:
         principalServerAddress: {{ .Values.global.argoCDAgent.serverAddress }}
         principalServerPort: "{{ .Values.global.argoCDAgent.serverPort }}"
-        logLevel: "info"
-        logFormat: "text"
-        image: {{ .Values.global.argoCDAgent.image }}:{{ .Values.global.argoCDAgent.tag }}
         mode: {{ .Values.global.argoCDAgent.mode }}
-        creds: "mtls:open-cluster-management:cluster:([^:]+):addon:argocd-agent"
+        enableWebSocket: false
+        enableCompression: false
         keepAliveInterval: "50s"
       tls:
         secretName: "argocd-agent-open-cluster-management.io-argocd-agent-addon-client-cert"

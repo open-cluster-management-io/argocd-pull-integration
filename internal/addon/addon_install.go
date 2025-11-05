@@ -30,7 +30,7 @@ import (
 
 // Default images (used when not specified)
 const (
-	defaultOperatorImage = "quay.io/mikeshng/argocd-operator:latest"
+	defaultOperatorImage = "quay.io/mikeshng/argocd-operator:latest-api"
 	defaultAgentImage    = "ghcr.io/argoproj-labs/argocd-agent/argocd-agent:latest"
 )
 
@@ -170,10 +170,11 @@ func ParseImageReference(imageRef string) (string, string, error) {
 			repository := imageRef[:lastColonIndex]
 			tag := imageRef[lastColonIndex+1:]
 
-			// Check if this might be a port number instead of a tag
-			// Port numbers are typically numeric and shorter
-			if !strings.Contains(tag, "/") && len(tag) < 10 {
-				// This looks like it could be a tag
+			// Check if this is a tag (not a port number in the registry URL)
+			// Tags don't contain slashes and are typically shorter than paths
+			// Port numbers would be numeric-only
+			if !strings.Contains(tag, "/") {
+				// This looks like a tag
 				return repository, tag, nil
 			}
 		}

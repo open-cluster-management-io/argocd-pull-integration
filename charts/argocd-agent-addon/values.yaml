@@ -9,7 +9,7 @@ addonTag: latest
 
 # ArgoCD operator image
 argoCDOperatorImage: quay.io/mikeshng/argocd-operator
-argoCDOperatorTag: latest
+argoCDOperatorTag: latest-api
 
 # ArgoCD agent image
 argoCDAgentImage: ghcr.io/argoproj-labs/argocd-agent/argocd-agent

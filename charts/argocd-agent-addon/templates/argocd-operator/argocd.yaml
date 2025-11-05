@@ -11,9 +11,15 @@ spec:
   argoCDAgent:
     principal:
       enabled: true
+      auth: "mtls:CN=system:open-cluster-management:cluster:([^:]+):addon:argocd-agent-addon:agent:argocd-agent-addon-agent"
+      image: {{ .Values.argoCDAgentImage }}:{{ .Values.argoCDAgentTag }}
       server:
-        auth: "mtls:CN=system:open-cluster-management:cluster:([^:]+):addon:argocd-agent-addon:agent:argocd-agent-addon-agent"
-        image: {{ .Values.argoCDAgentImage }}:{{ .Values.argoCDAgentTag }}
+        enableWebSocket: false
+        keepAliveMinInterval: "30s"
+        service:
+          type: LoadBalancer
+        route:
+          enabled: false
       namespace:
         allowedNamespaces:
           - "*"

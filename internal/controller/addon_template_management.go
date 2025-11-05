@@ -77,7 +77,7 @@ func (r *GitOpsClusterReconciler) EnsureAddOnTemplate(ctx context.Context, gitOp
 	// Get operator and agent images from GitOpsCluster spec or use defaults
 	operatorImage := gitOpsCluster.Spec.ArgoCDAgentAddon.OperatorImage
 	if operatorImage == "" {
-		operatorImage = "quay.io/mikeshng/argocd-operator:latest"
+		operatorImage = "quay.io/mikeshng/argocd-operator:latest-api"
 	}
 
 	agentImage := gitOpsCluster.Spec.ArgoCDAgentAddon.AgentImage
