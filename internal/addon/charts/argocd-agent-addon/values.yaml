@@ -1,8 +1,7 @@
+# This values.yaml is used for embedding in the addon controller
+# The controller dynamically sets these values when deploying to managed clusters
+# See internal/controller/addon_template_management.go for how these are populated
+
 global:
   argoCDOperatorNamespace: ""
   argoCDNamespace: ""
-  argoCDAgent:
-    image: ""
-    serverAddress: ""
-    serverPort: ""
-    mode: ""

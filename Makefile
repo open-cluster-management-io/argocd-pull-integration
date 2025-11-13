@@ -87,8 +87,6 @@ test-e2e: manifests generate fmt vet ## Run e2e deployment tests only (checks po
 		--namespace argocd \
 		--set image=quay.io/open-cluster-management/argocd-pull-integration \
 		--set tag=latest \
-		--set addonImage=quay.io/open-cluster-management/argocd-pull-integration \
-		--set addonTag=latest \
 		--wait \
 		--timeout 10m
 	@echo ""
@@ -181,8 +179,6 @@ test-e2e-cleanup: manifests generate fmt vet ## Run e2e cleanup tests (checks ad
 		--namespace argocd \
 		--set image=quay.io/open-cluster-management/argocd-pull-integration \
 		--set tag=latest \
-		--set addonImage=quay.io/open-cluster-management/argocd-pull-integration \
-		--set addonTag=latest \
 		--wait \
 		--timeout 10m
 	@echo ""
@@ -192,7 +188,7 @@ test-e2e-cleanup: manifests generate fmt vet ## Run e2e cleanup tests (checks ad
 	@echo "===== E2E Cleanup Tests Complete ====="
 
 .PHONY: test-e2e-cleanup-full
-test-e2e-cleanup-full: ## Complete e2e test with cleanup verification (cluster setup + deployment + cleanup)
+test-e2e-cleanup-full: ## Complete e2e test with cleanup verification including Application (cluster setup + deployment + cleanup)
 	@echo "===== Cleaning up existing clusters ====="
 	$(KIND) delete clusters --all || true
 	@echo ""
@@ -207,10 +203,29 @@ test-e2e-cleanup-full: ## Complete e2e test with cleanup verification (cluster s
 	$(KIND) load docker-image $(E2E_IMG) --name $(HUB_CLUSTER)
 	$(KIND) load docker-image $(E2E_IMG) --name $(SPOKE_CLUSTER)
 	@echo ""
-	@echo "===== Running cleanup e2e tests ====="
-	$(MAKE) test-e2e-cleanup
+	@echo "===== Installing MetalLB ====="
+	./test/e2e/scripts/install_metallb.sh
 	@echo ""
-	@echo "===== E2E Cleanup Tests Complete ====="
+	@echo "===== Setting up OCM environment ====="
+	./test/e2e/scripts/setup_ocm_env.sh
+	@echo ""
+	@echo "===== Installing addon via Helm ====="
+	$(KUBECTL) config use-context kind-$(HUB_CLUSTER)
+	$(KUBECTL) create namespace argocd || true
+	$(KUBECTL) label namespace argocd app.kubernetes.io/managed-by=Helm --overwrite
+	$(KUBECTL) annotate namespace argocd meta.helm.sh/release-name=argocd-agent-addon meta.helm.sh/release-namespace=argocd --overwrite
+	helm install argocd-agent-addon \
+		./charts/argocd-agent-addon \
+		--namespace argocd \
+		--set image=quay.io/open-cluster-management/argocd-pull-integration \
+		--set tag=latest \
+		--wait \
+		--timeout 10m
+	@echo ""
+	@echo "===== Running full cleanup e2e tests (with Application) ====="
+	go test -tags=e2e ./test/e2e/ -v -ginkgo.v --ginkgo.label-filter="cleanup-full"
+	@echo ""
+	@echo "===== E2E Cleanup Full Tests Complete ====="
 	@echo "Hub context: kind-$(HUB_CLUSTER)"
 	@echo "Spoke context: kind-$(SPOKE_CLUSTER)"
 

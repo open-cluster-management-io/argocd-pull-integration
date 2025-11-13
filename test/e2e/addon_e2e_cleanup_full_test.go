@@ -22,6 +22,7 @@ package e2e
 import (
 	"fmt"
 	"os/exec"
+	"strings"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -30,11 +31,11 @@ import (
 	"open-cluster-management.io/argocd-pull-integration/test/utils"
 )
 
-var _ = Describe("ArgoCD Agent Addon Cleanup E2E", Ordered, Label("cleanup"), func() {
+var _ = Describe("ArgoCD Agent Addon Cleanup Full E2E", Ordered, Label("cleanup-full"), func() {
 	SetDefaultEventuallyTimeout(5 * time.Minute)
 	SetDefaultEventuallyPollingInterval(5 * time.Second)
 
-	Context("Complete Lifecycle with Cleanup", func() {
+	Context("Complete Lifecycle with Application and Cleanup", func() {
 		It("should deploy the GitOpsCluster controller on hub", func() {
 			By("Verifying test environment is ready")
 			cmd := exec.Command("kubectl", "config", "get-contexts", hubContext)
@@ -259,7 +260,72 @@ var _ = Describe("ArgoCD Agent Addon Cleanup E2E", Ordered, Label("cleanup"), fu
 			}).Should(Succeed())
 		})
 
-		It("should cleanup when placement is updated to remove clusters", func() {
+		It("should create and sync Application to spoke", func() {
+			By("creating AppProject on hub argocd namespace")
+			appProjectYAML := `apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: default
+  namespace: argocd
+spec:
+  clusterResourceWhitelist:
+  - group: '*'
+    kind: '*'
+  destinations:
+  - namespace: '*'
+    server: '*'
+  sourceRepos:
+  - '*'
+  sourceNamespaces:
+  - '*'`
+			cmd := exec.Command("kubectl", "--context", hubContext, "apply", "-f", "-")
+			cmd.Stdin = strings.NewReader(appProjectYAML)
+			_, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("creating cluster1 namespace on hub")
+			cmd = exec.Command("kubectl", "--context", hubContext, "create", "namespace", "cluster1")
+			_, _ = utils.Run(cmd) // Ignore error if namespace already exists
+
+			By("creating Application on hub in cluster1 namespace")
+			applicationYAML := `apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: test-app
+  namespace: cluster1
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/argoproj/argocd-example-apps
+    targetRevision: HEAD
+    path: guestbook
+  destination:
+    server: https://172.18.255.200:443?agentName=cluster1
+    namespace: guestbook
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+    - CreateNamespace=true`
+			appCmd := exec.Command("kubectl", "--context", hubContext, "apply", "-f", "-")
+			appCmd.Stdin = strings.NewReader(applicationYAML)
+			_, err = utils.Run(appCmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("verifying Application synced to spoke cluster argocd namespace")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "--context", cluster1Context,
+					"get", "application", "test-app",
+					"-n", argoCDNamespace,
+					"-o", "jsonpath={.metadata.name}")
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).To(Equal("test-app"))
+			}, 30*time.Second, 5*time.Second).Should(Succeed())
+		})
+
+		It("should cleanup addon but preserve Application when placement is updated", func() {
 			By("recording initial state")
 			Eventually(func(g Gomega) {
 				cmd := exec.Command("kubectl", "--context", cluster1Context,
@@ -275,6 +341,14 @@ var _ = Describe("ArgoCD Agent Addon Cleanup E2E", Ordered, Label("cleanup"), fu
 				_, err := utils.Run(cmd)
 				g.Expect(err).NotTo(HaveOccurred())
 			}, 1*time.Minute, 5*time.Second).Should(Succeed(), "Operator deployment should exist before cleanup")
+
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "--context", cluster1Context,
+					"get", "application", "test-app",
+					"-n", argoCDNamespace)
+				_, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+			}, 1*time.Minute, 5*time.Second).Should(Succeed(), "Application should exist before cleanup")
 
 			By("verifying ManagedClusterAddOn exists")
 			Eventually(func(g Gomega) {
@@ -361,6 +435,24 @@ var _ = Describe("ArgoCD Agent Addon Cleanup E2E", Ordered, Label("cleanup"), fu
 				g.Expect(err).NotTo(HaveOccurred())
 				g.Expect(output).To(BeEmpty(), "Operator deployment should be deleted")
 			}, 2*time.Minute, 5*time.Second).Should(Succeed(), "ArgoCD operator should be removed from spoke cluster")
+
+			By("verifying Application still exists on spoke cluster (NOT deleted)")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "--context", cluster1Context,
+					"get", "application", "test-app",
+					"-n", argoCDNamespace)
+				_, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred(), "Application should still exist after cleanup")
+			}, 30*time.Second, 5*time.Second).Should(Succeed(), "Application should NOT be deleted during addon cleanup")
+
+			By("verifying Application still exists on hub (NOT deleted)")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "--context", hubContext,
+					"get", "application", "test-app",
+					"-n", "cluster1")
+				_, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred(), "Application should still exist on hub after cleanup")
+			}, 30*time.Second, 5*time.Second).Should(Succeed(), "Application on hub should NOT be deleted during addon cleanup")
 		})
 
 		AfterAll(func() {

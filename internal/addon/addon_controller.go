@@ -105,6 +105,12 @@ func (r *ArgoCDAgentAddonReconciler) Start(ctx context.Context) error {
 func (r *ArgoCDAgentAddonReconciler) reconcile(ctx context.Context) {
 	klog.V(2).Info("Reconciling ArgoCD Agent Addon")
 
+	// Check if controller is paused (during cleanup)
+	if IsPaused(ctx, r.Client, operatorNamespace) {
+		klog.Info("ArgoCD Agent Addon controller is paused, skipping reconciliation")
+		return
+	}
+
 	// Perform install/update
 	if err := r.installOrUpdateArgoCDAgent(ctx); err != nil {
 		klog.Errorf("Failed to reconcile ArgoCD Agent Addon: %v", err)

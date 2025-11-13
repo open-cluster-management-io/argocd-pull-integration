@@ -10,5 +10,5 @@ spec:
     name: placement
   argoCDAgentAddon:
     mode: managed
-    operatorImage: quay.io/mikeshng/argocd-operator:latest-api
-    agentImage: ghcr.io/argoproj-labs/argocd-agent/argocd-agent:latest
+    operatorImage: quay.io/argoprojlabs/argocd-operator:latest
+    agentImage: quay.io/argoprojlabs/argocd-agent:v0.5.0

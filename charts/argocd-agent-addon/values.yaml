@@ -1,27 +1,24 @@
-# Controller manager image
+# Controller manager image settings
+# For development (main branch): use "latest" tag
+# For release branches: update tag to match the release version (e.g., "0.25.0")
 image: quay.io/open-cluster-management/argocd-pull-integration
 tag: latest
 replicas: 1
 
-# Addon agent image (deployed to managed clusters)
-addonImage: quay.io/open-cluster-management/argocd-pull-integration
-addonTag: latest
-
 # ArgoCD operator image
-argoCDOperatorImage: quay.io/mikeshng/argocd-operator
-argoCDOperatorTag: latest-api
+# This operator manages ArgoCD instances on the hub cluster
+argoCDOperatorImage: quay.io/argoprojlabs/argocd-operator
+argoCDOperatorTag: latest
 
 # ArgoCD agent image
-argoCDAgentImage: ghcr.io/argoproj-labs/argocd-agent/argocd-agent
-argoCDAgentTag: latest
+# This is the argocd-agent that runs in principal server mode on the hub
+argoCDAgentImage: quay.io/argoprojlabs/argocd-agent
+argoCDAgentTag: v0.5.0
 
-# Hub ArgoCD Principal Server settings
+# Hub ArgoCD settings
 global:
   argoCDOperatorNamespace: argocd-operator-system
   argoCDNamespace: argocd
-  argoCDAgent:
-    image: ghcr.io/argoproj-labs/argocd-agent/argocd-agent
-    tag: latest
 
 # GitOpsCluster settings (will be created in argocd namespace)
 gitOpsCluster:
