@@ -92,6 +92,25 @@ jobs:
           fetch-depth: 1
       - name: setup helm
         uses: azure/setup-helm@v4
+      - name: prepare chart for release
+        run: |
+          # Update Chart.yaml appVersion to match release version (without 'v' prefix)
+          RELEASE_VERSION="${{ needs.env.outputs.TRIMMED_RELEASE_VERSION }}"
+          sed -i "s/^appVersion:.*/appVersion: ${RELEASE_VERSION}/" charts/${{ env.CHART_NAME }}/Chart.yaml
+          sed -i "s/^version:.*/version: ${RELEASE_VERSION}/" charts/${{ env.CHART_NAME }}/Chart.yaml
+          
+          # Remove the 'tag: latest' line from values.yaml so it defaults to Chart.appVersion
+          sed -i '/^tag: latest$/d' charts/${{ env.CHART_NAME }}/values.yaml
+          
+          # Do the same for internal addon chart
+          sed -i "s/^appVersion:.*/appVersion: ${RELEASE_VERSION}/" internal/addon/charts/${{ env.CHART_NAME }}/Chart.yaml
+          sed -i "s/^version:.*/version: ${RELEASE_VERSION}/" internal/addon/charts/${{ env.CHART_NAME }}/Chart.yaml
+          
+          echo "Chart prepared for release ${RELEASE_VERSION}"
+          echo "=== Chart.yaml ==="
+          cat charts/${{ env.CHART_NAME }}/Chart.yaml
+          echo "=== values.yaml (tag section) ==="
+          grep -A2 "^image:" charts/${{ env.CHART_NAME }}/values.yaml || true
       - name: chart package
         run: |
           mkdir -p release

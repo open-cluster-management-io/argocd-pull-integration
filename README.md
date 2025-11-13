@@ -132,7 +132,9 @@ For detailed argocd-agent architecture and operational modes, see [argocd-agent 
 3. **Install Helm Chart**:
 
 ```bash
-# Hub Cluster
+# After OCM and load balancer setup:
+#
+# kubectl config use-context <hub-cluster>
 helm repo add ocm https://open-cluster-management.io/helm-charts
 helm repo update
 helm search repo ocm

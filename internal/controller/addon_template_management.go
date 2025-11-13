@@ -33,12 +33,10 @@ import (
 	addonv1alpha1 "open-cluster-management.io/api/addon/v1alpha1"
 	workv1 "open-cluster-management.io/api/work/v1"
 	appsv1alpha1 "open-cluster-management.io/argocd-pull-integration/api/v1alpha1"
+	"open-cluster-management.io/argocd-pull-integration/internal/pkg/images"
 )
 
 const (
-	// DefaultAddonImage is the default image to use if controller image cannot be determined
-	DefaultAddonImage = "quay.io/open-cluster-management/argocd-pull-integration:latest"
-
 	// ControllerImageEnvVar is the environment variable name for the controller image
 	ControllerImageEnvVar = "CONTROLLER_IMAGE"
 )
@@ -46,15 +44,14 @@ const (
 // getControllerImage retrieves the controller's image from environment variable
 // This follows K8s standard practice of using downward API to inject pod metadata
 func (r *GitOpsClusterReconciler) getControllerImage(ctx context.Context, namespace string) (string, error) {
-	// Try to get image from environment variable (set via downward API in deployment)
-	if image := os.Getenv(ControllerImageEnvVar); image != "" {
-		klog.V(2).InfoS("Found controller image from environment", "image", image)
-		return image, nil
+	// Get image from environment variable (set via downward API in deployment)
+	image := os.Getenv(ControllerImageEnvVar)
+	if image == "" {
+		return "", fmt.Errorf("CONTROLLER_IMAGE environment variable is not set - this must be configured in the deployment")
 	}
 
-	// Fallback to default if not set
-	klog.V(2).InfoS("Using default controller image", "image", DefaultAddonImage)
-	return DefaultAddonImage, nil
+	klog.V(2).InfoS("Found controller image from environment", "image", image)
+	return image, nil
 }
 
 // getAddOnTemplateName generates a unique AddOnTemplate name for the GitOpsCluster
@@ -70,19 +67,18 @@ func (r *GitOpsClusterReconciler) EnsureAddOnTemplate(ctx context.Context, gitOp
 	// Get the controller image
 	addonImage, err := r.getControllerImage(ctx, gitOpsCluster.Namespace)
 	if err != nil {
-		klog.ErrorS(err, "Failed to get controller image, using default", "default", DefaultAddonImage)
-		addonImage = DefaultAddonImage
+		return fmt.Errorf("failed to get controller image: %w", err)
 	}
 
 	// Get operator and agent images from GitOpsCluster spec or use defaults
 	operatorImage := gitOpsCluster.Spec.ArgoCDAgentAddon.OperatorImage
 	if operatorImage == "" {
-		operatorImage = "quay.io/mikeshng/argocd-operator:latest-api"
+		operatorImage = images.GetFullImageReference(images.DefaultOperatorImage, images.DefaultOperatorTag)
 	}
 
 	agentImage := gitOpsCluster.Spec.ArgoCDAgentAddon.AgentImage
 	if agentImage == "" {
-		agentImage = "ghcr.io/argoproj-labs/argocd-agent/argocd-agent:latest"
+		agentImage = images.GetFullImageReference(images.DefaultAgentImage, images.DefaultAgentTag)
 	}
 
 	// Build the AddOnTemplate
@@ -100,7 +96,7 @@ func (r *GitOpsClusterReconciler) EnsureAddOnTemplate(ctx context.Context, gitOp
 			AddonName: ArgoCDAgentAddonName,
 			AgentSpec: workv1.ManifestWorkSpec{
 				Workload: workv1.ManifestsTemplate{
-					Manifests: buildAddonManifests(gitOpsCluster.Namespace, addonImage, operatorImage, agentImage),
+					Manifests: buildAddonManifests(addonImage, operatorImage, agentImage),
 				},
 			},
 			Registration: []addonv1alpha1.RegistrationSpec{
@@ -139,7 +135,7 @@ func (r *GitOpsClusterReconciler) EnsureAddOnTemplate(ctx context.Context, gitOp
 }
 
 // buildAddonManifests builds the manifest list for the AddOnTemplate
-func buildAddonManifests(gitOpsNamespace, addonImage, operatorImage, agentImage string) []workv1.Manifest {
+func buildAddonManifests(addonImage, operatorImage, agentImage string) []workv1.Manifest {
 	manifests := []workv1.Manifest{
 		// Pre-delete cleanup job
 		{

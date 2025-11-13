@@ -26,12 +26,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/klog/v2"
-)
-
-// Default images (used when not specified)
-const (
-	defaultOperatorImage = "quay.io/mikeshng/argocd-operator:latest-api"
-	defaultAgentImage    = "ghcr.io/argoproj-labs/argocd-agent/argocd-agent:latest"
+	"open-cluster-management.io/argocd-pull-integration/internal/pkg/images"
 )
 
 // ensureNamespace creates a namespace if it doesn't exist
@@ -112,13 +107,13 @@ func (r *ArgoCDAgentAddonReconciler) installOrUpdateArgoCDAgent(ctx context.Cont
 	// Set defaults if images are not provided
 	operatorImage := r.ArgoCDOperatorImage
 	if operatorImage == "" {
-		operatorImage = defaultOperatorImage
+		operatorImage = images.GetFullImageReference(images.DefaultOperatorImage, images.DefaultOperatorTag)
 		klog.V(1).Infof("Using default operator image: %s", operatorImage)
 	}
 
 	agentImage := r.ArgoCDAgentImage
 	if agentImage == "" {
-		agentImage = defaultAgentImage
+		agentImage = images.GetFullImageReference(images.DefaultAgentImage, images.DefaultAgentTag)
 		klog.V(1).Infof("Using default agent image: %s", agentImage)
 	}
 

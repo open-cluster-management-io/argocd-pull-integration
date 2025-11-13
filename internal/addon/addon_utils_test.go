@@ -26,6 +26,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes/scheme"
+	"open-cluster-management.io/argocd-pull-integration/internal/pkg/images"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
@@ -498,10 +499,11 @@ func TestConstants(t *testing.T) {
 	if argoCDNamespace != "argocd" {
 		t.Errorf("argoCDNamespace = %v, want argocd", argoCDNamespace)
 	}
-	if defaultOperatorImage == "" {
-		t.Error("defaultOperatorImage should be defined")
+	// Verify centralized image defaults are defined for external dependencies
+	if images.DefaultOperatorImage == "" {
+		t.Error("DefaultOperatorImage should be defined")
 	}
-	if defaultAgentImage == "" {
-		t.Error("defaultAgentImage should be defined")
+	if images.DefaultAgentImage == "" {
+		t.Error("DefaultAgentImage should be defined")
 	}
 }

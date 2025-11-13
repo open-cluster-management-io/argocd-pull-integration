@@ -41,16 +41,18 @@ func TestGetControllerImage(t *testing.T) {
 		name          string
 		envVar        string
 		expectedImage string
+		expectError   bool
 	}{
 		{
 			name:          "env var set",
 			envVar:        "test-image:v1.0.0",
 			expectedImage: "test-image:v1.0.0",
+			expectError:   false,
 		},
 		{
-			name:          "env var not set",
-			envVar:        "",
-			expectedImage: DefaultAddonImage,
+			name:        "env var not set - should error",
+			envVar:      "",
+			expectError: true,
 		},
 	}
 
@@ -70,6 +72,14 @@ func TestGetControllerImage(t *testing.T) {
 			}
 
 			image, err := r.getControllerImage(context.Background(), "test-namespace")
+
+			if tt.expectError {
+				if err == nil {
+					t.Errorf("getControllerImage() expected error but got none")
+				}
+				return
+			}
+
 			if err != nil {
 				t.Errorf("getControllerImage() error = %v", err)
 				return
@@ -171,6 +181,17 @@ func TestEnsureAddOnTemplate(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			// Set CONTROLLER_IMAGE environment variable for test
+			originalEnv := os.Getenv(ControllerImageEnvVar)
+			os.Setenv(ControllerImageEnvVar, "test-controller:v1.0.0")
+			defer func() {
+				if originalEnv != "" {
+					os.Setenv(ControllerImageEnvVar, originalEnv)
+				} else {
+					os.Unsetenv(ControllerImageEnvVar)
+				}
+			}()
+
 			r := &GitOpsClusterReconciler{
 				Client: fake.NewClientBuilder().WithScheme(s).WithRuntimeObjects(tt.existingObjs...).Build(),
 				Scheme: s,
@@ -197,7 +218,7 @@ func TestEnsureAddOnTemplate(t *testing.T) {
 }
 
 func TestBuildAddonManifests(t *testing.T) {
-	manifests := buildAddonManifests("test-namespace", "addon-image:v1", "operator-image:v1", "agent-image:v1")
+	manifests := buildAddonManifests("addon-image:v1", "operator-image:v1", "agent-image:v1")
 
 	if len(manifests) == 0 {
 		t.Error("buildAddonManifests() returned no manifests")
