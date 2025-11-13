@@ -11,7 +11,7 @@ require (
 	helm.sh/helm/v3 v3.19.1
 	k8s.io/api v0.34.1
 	k8s.io/apiextensions-apiserver v0.34.1
-	k8s.io/apimachinery v0.34.1
+	k8s.io/apimachinery v0.34.2
 	k8s.io/client-go v0.34.1
 	k8s.io/klog/v2 v2.130.1
 	open-cluster-management.io/api v1.1.0
