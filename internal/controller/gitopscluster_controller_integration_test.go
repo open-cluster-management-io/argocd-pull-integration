@@ -391,7 +391,8 @@ func TestCreateArgoCDAgentManifestWork(t *testing.T) {
 				Scheme: s,
 			}
 
-			err := r.createArgoCDAgentManifestWork(context.Background(), namespace, tt.cluster)
+			// Pass same namespace for both hub and spoke in test
+			err := r.createArgoCDAgentManifestWork(context.Background(), namespace, namespace, tt.cluster)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("createArgoCDAgentManifestWork() error = %v, wantErr %v", err, tt.wantErr)
 			}

@@ -37,21 +37,6 @@ const (
 	PauseMarkerName = "argocd-agent-addon-pause"
 )
 
-// getNamespaceConfig returns namespace configuration from environment variables or defaults
-func getNamespaceConfig() (operatorNamespace, argoCDNamespace string) {
-	operatorNamespace = os.Getenv("ARGOCD_OPERATOR_NAMESPACE")
-	if operatorNamespace == "" {
-		operatorNamespace = "argocd-operator-system"
-	}
-
-	argoCDNamespace = os.Getenv("ARGOCD_NAMESPACE")
-	if argoCDNamespace == "" {
-		argoCDNamespace = "argocd"
-	}
-
-	return operatorNamespace, argoCDNamespace
-}
-
 // uninstallArgoCDAgent uninstalls the ArgoCD agent addon in reverse order
 // Does NOT delete namespaces, only deletes operator after ArgoCD CR is gone
 func (r *ArgoCDAgentAddonReconciler) uninstallArgoCDAgent(ctx context.Context) error {

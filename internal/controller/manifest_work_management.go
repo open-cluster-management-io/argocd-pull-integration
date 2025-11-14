@@ -43,7 +43,8 @@ const (
 // This distributes the CA certificate to the managed cluster whenever it changes
 func (r *GitOpsClusterReconciler) createArgoCDAgentManifestWork(
 	ctx context.Context,
-	argoNamespace string,
+	hubArgoCDNamespace string,
+	spokeArgoCDNamespace string,
 	managedCluster *clusterv1.ManagedCluster) error {
 
 	// Skip local-cluster - don't create ManifestWork for local cluster
@@ -53,12 +54,14 @@ func (r *GitOpsClusterReconciler) createArgoCDAgentManifestWork(
 	}
 
 	// Get the CA certificate from the argocd-agent-ca secret on the hub
-	caCert, err := r.getArgoCDAgentCACertString(ctx, argoNamespace)
+	// The CA secret is stored on the hub in the GitOpsCluster's namespace (hubArgoCDNamespace)
+	caCert, err := r.getArgoCDAgentCACertString(ctx, hubArgoCDNamespace)
 	if err != nil {
 		return fmt.Errorf("failed to get ArgoCD agent CA certificate: %w", err)
 	}
 
-	manifestWork := r.buildArgoCDAgentManifestWork(managedCluster.Name, argoNamespace, caCert)
+	// Create ManifestWork that will create the secret in the spoke's ArgoCD namespace
+	manifestWork := r.buildArgoCDAgentManifestWork(managedCluster.Name, spokeArgoCDNamespace, caCert)
 
 	// Check if ManifestWork already exists
 	existingMW := &workv1.ManifestWork{}
@@ -144,7 +147,7 @@ func (r *GitOpsClusterReconciler) createArgoCDAgentManifestWork(
 
 // buildArgoCDAgentManifestWork builds a ManifestWork object for the ArgoCD agent CA secret
 func (r *GitOpsClusterReconciler) buildArgoCDAgentManifestWork(
-	managedClusterName, hubNamespace, caCert string) *workv1.ManifestWork {
+	managedClusterName, spokeArgoCDNamespace, caCert string) *workv1.ManifestWork {
 
 	// The secret to be created on the managed cluster
 	secret := &corev1.Secret{
@@ -154,7 +157,7 @@ func (r *GitOpsClusterReconciler) buildArgoCDAgentManifestWork(
 		},
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      ArgoCDAgentCASecretName,
-			Namespace: hubNamespace, // This secret will be created in the ArgoCD namespace on the managed cluster
+			Namespace: spokeArgoCDNamespace, // This secret will be created in the ArgoCD namespace on the managed cluster
 		},
 		Type: corev1.SecretTypeOpaque,
 		Data: map[string][]byte{

@@ -230,20 +230,26 @@ test-e2e-custom-namespace: manifests generate fmt vet ## Run e2e test with custo
 		--namespace notargocd \
 		--create-namespace \
 		--set global.argoCDNamespace=notargocd \
-		--set global.argoCDOperatorNamespace=argocd-operator-system \
+		--set global.argoCDOperatorNamespace=notargocd-operator-system \
 		--set controller.namespace=notargocd \
 		--set gitOpsCluster.namespace=notargocd \
+		--set gitOpsCluster.argoCDAgentAddon.agentNamespace=argocdnot \
+		--set gitOpsCluster.argoCDAgentAddon.operatorNamespace=argocdnot-operator-system \
 		--set image=quay.io/open-cluster-management/argocd-pull-integration \
 		--set tag=latest \
 		--wait \
 		--timeout 10m
 	@echo ""
 	@echo "===== Running e2e tests with custom namespaces ====="
-	HUB_ARGOCD_NAMESPACE=notargocd go test -tags=e2e ./test/e2e/ -v -ginkgo.v --ginkgo.label-filter="custom-namespace"
+	HUB_ARGOCD_NAMESPACE=notargocd \
+	HUB_ARGOCD_OPERATOR_NAMESPACE=notargocd-operator-system \
+	SPOKE_ARGOCD_NAMESPACE=argocdnot \
+	SPOKE_ARGOCD_OPERATOR_NAMESPACE=argocdnot-operator-system \
+	go test -tags=e2e ./test/e2e/ -v -ginkgo.v --ginkgo.label-filter="custom-namespace"
 	@echo ""
 	@echo "===== E2E Custom Namespace Tests Complete ====="
-	@echo "Hub context: kind-$(HUB_CLUSTER) (ArgoCD in notargocd namespace)"
-	@echo "Spoke context: kind-$(SPOKE_CLUSTER) (ArgoCD in notargocd namespace)"
+	@echo "Hub context: kind-$(HUB_CLUSTER) (ArgoCD: notargocd, Operator: notargocd-operator-system)"
+	@echo "Spoke context: kind-$(SPOKE_CLUSTER) (ArgoCD: argocdnot, Operator: argocdnot-operator-system)"
 
 .PHONY: test-e2e-custom-namespace-full
 test-e2e-custom-namespace-full: ## Complete e2e test with custom namespaces (cluster setup + custom namespace deployment + tests)
