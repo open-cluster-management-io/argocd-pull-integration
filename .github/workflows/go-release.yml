@@ -53,13 +53,13 @@ jobs:
         run: docker pull registry.access.redhat.com/ubi9/ubi-minimal:latest --platform=linux/${{ matrix.arch }}
       - name: images
         run: |
-          IMG=quay.io/open-cluster-management/argocd-pull-integration:${{ needs.env.outputs.RELEASE_VERSION }}-${{ matrix.arch }} \
+          IMG=quay.io/open-cluster-management/argocd-pull-integration:${{ needs.env.outputs.TRIMMED_RELEASE_VERSION }}-${{ matrix.arch }} \
           IMAGE_BUILD_EXTRA_FLAGS="--build-arg OS=linux --build-arg ARCH=${{ matrix.arch }}" \
             make docker-build
       - name: push
         run: |
           echo ${{ secrets.DOCKER_PASSWORD }} | docker login quay.io --username ${{ secrets.DOCKER_USER }} --password-stdin
-          docker push quay.io/open-cluster-management/argocd-pull-integration:${{ needs.env.outputs.RELEASE_VERSION }}-${{ matrix.arch }}
+          docker push quay.io/open-cluster-management/argocd-pull-integration:${{ needs.env.outputs.TRIMMED_RELEASE_VERSION }}-${{ matrix.arch }}
   image-manifest:
     name: image manifest
     runs-on: ubuntu-latest
@@ -72,15 +72,15 @@ jobs:
       - name: create
         run: |
           echo ${{ secrets.DOCKER_PASSWORD }} | docker login quay.io --username ${{ secrets.DOCKER_USER }} --password-stdin
-          docker manifest create quay.io/open-cluster-management/argocd-pull-integration:${{ needs.env.outputs.RELEASE_VERSION }} \
-            quay.io/open-cluster-management/argocd-pull-integration:${{ needs.env.outputs.RELEASE_VERSION }}-amd64
+          docker manifest create quay.io/open-cluster-management/argocd-pull-integration:${{ needs.env.outputs.TRIMMED_RELEASE_VERSION }} \
+            quay.io/open-cluster-management/argocd-pull-integration:${{ needs.env.outputs.TRIMMED_RELEASE_VERSION }}-amd64
       - name: annotate
         run: |
-          docker manifest annotate quay.io/open-cluster-management/argocd-pull-integration:${{ needs.env.outputs.RELEASE_VERSION }} \
-            quay.io/open-cluster-management/argocd-pull-integration:${{ needs.env.outputs.RELEASE_VERSION }}-amd64 --arch amd64
+          docker manifest annotate quay.io/open-cluster-management/argocd-pull-integration:${{ needs.env.outputs.TRIMMED_RELEASE_VERSION }} \
+            quay.io/open-cluster-management/argocd-pull-integration:${{ needs.env.outputs.TRIMMED_RELEASE_VERSION }}-amd64 --arch amd64
       - name: push
         run: |
-          docker manifest push quay.io/open-cluster-management/argocd-pull-integration:${{ needs.env.outputs.RELEASE_VERSION }}
+          docker manifest push quay.io/open-cluster-management/argocd-pull-integration:${{ needs.env.outputs.TRIMMED_RELEASE_VERSION }}
   release:
     name: release
     runs-on: ubuntu-latest
