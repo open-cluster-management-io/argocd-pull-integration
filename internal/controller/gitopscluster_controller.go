@@ -472,6 +472,12 @@ func (r *GitOpsClusterReconciler) buildAddonVariables(
 		variables["ARGOCD_AGENT_MODE"] = gitOpsCluster.Spec.ArgoCDAgentAddon.Mode
 	}
 
+	// Add namespace configuration - use GitOpsCluster's namespace as the ArgoCD namespace on spoke
+	// This is the namespace where the ArgoCD CR will be deployed on the managed/spoke cluster
+	variables["ARGOCD_NAMESPACE"] = gitOpsCluster.Namespace
+	// Default operator namespace
+	variables["ARGOCD_OPERATOR_NAMESPACE"] = "argocd-operator-system"
+
 	// Add operator image if specified
 	if gitOpsCluster.Spec.ArgoCDAgentAddon.OperatorImage != "" {
 		variables["ARGOCD_OPERATOR_IMAGE"] = gitOpsCluster.Spec.ArgoCDAgentAddon.OperatorImage

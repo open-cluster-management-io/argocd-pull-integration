@@ -37,8 +37,8 @@ import (
 )
 
 // templateAndApplyChart templates a Helm chart and applies the rendered manifests
-func (r *ArgoCDAgentAddonReconciler) templateAndApplyChart(ctx context.Context, chartPath, namespace, releaseName, operatorImage, agentImage string) error {
-	klog.Infof("Templating and applying chart %s in namespace %s", releaseName, namespace)
+func (r *ArgoCDAgentAddonReconciler) templateAndApplyChart(ctx context.Context, chartPath, operatorNamespace, argoCDNamespace, releaseName, operatorImage, agentImage string) error {
+	klog.Infof("Templating and applying chart %s in namespace %s", releaseName, operatorNamespace)
 
 	// Create temp directory for chart files
 	tempDir, err := os.MkdirTemp("", "helm-chart-*")
@@ -103,7 +103,7 @@ func (r *ArgoCDAgentAddonReconciler) templateAndApplyChart(ctx context.Context, 
 	// Set up release options
 	options := chartutil.ReleaseOptions{
 		Name:      releaseName,
-		Namespace: namespace,
+		Namespace: operatorNamespace,
 	}
 
 	// Prepare values to render
@@ -146,8 +146,14 @@ func (r *ArgoCDAgentAddonReconciler) templateAndApplyChart(ctx context.Context, 
 			}
 
 			// Set the namespace if it's a namespaced resource and doesn't have one
+			// Use operatorNamespace for operator resources, argoCDNamespace for ArgoCD resources
 			if obj.GetNamespace() == "" && obj.GetKind() != "Namespace" && obj.GetKind() != "ClusterRole" && obj.GetKind() != "ClusterRoleBinding" {
-				obj.SetNamespace(namespace)
+				// ArgoCD resource should go to argoCDNamespace, everything else to operatorNamespace
+				if obj.GetKind() == "ArgoCD" {
+					obj.SetNamespace(argoCDNamespace)
+				} else {
+					obj.SetNamespace(operatorNamespace)
+				}
 			}
 
 			// Apply the manifest
@@ -159,7 +165,7 @@ func (r *ArgoCDAgentAddonReconciler) templateAndApplyChart(ctx context.Context, 
 		}
 	}
 
-	klog.Infof("Successfully templated and applied chart %s in namespace %s", releaseName, namespace)
+	klog.Infof("Successfully templated and applied chart %s in operator namespace %s and argocd namespace %s", releaseName, operatorNamespace, argoCDNamespace)
 	return nil
 }
 

@@ -492,12 +492,13 @@ func TestApplyCRDIfNotExistsValidation(t *testing.T) {
 }
 
 func TestConstants(t *testing.T) {
-	// Verify addon constants are defined correctly
-	if operatorNamespace != "argocd-operator-system" {
-		t.Errorf("operatorNamespace = %v, want argocd-operator-system", operatorNamespace)
+	// Verify namespace configuration reads defaults correctly
+	operatorNS, argoCDNS := getNamespaceConfig()
+	if operatorNS != "argocd-operator-system" {
+		t.Errorf("operatorNamespace = %v, want argocd-operator-system", operatorNS)
 	}
-	if argoCDNamespace != "argocd" {
-		t.Errorf("argoCDNamespace = %v, want argocd", argoCDNamespace)
+	if argoCDNS != "argocd" {
+		t.Errorf("argoCDNamespace = %v, want argocd", argoCDNS)
 	}
 	// Verify centralized image defaults are defined for external dependencies
 	if images.DefaultOperatorImage == "" {

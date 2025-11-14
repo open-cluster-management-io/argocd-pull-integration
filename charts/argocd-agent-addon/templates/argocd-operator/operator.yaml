@@ -8,14 +8,6 @@ metadata:
   name: {{ .Values.global.argoCDOperatorNamespace }}
 ---
 apiVersion: v1
-kind: Namespace
-metadata:
-  labels:
-    control-plane: argocd-operator
-    app.kubernetes.io/managed-by: argocd-agent-addon
-  name: {{ .Values.global.argoCDNamespace }}
----
-apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: argocd-operator-controller-manager

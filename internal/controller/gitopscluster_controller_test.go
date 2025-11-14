@@ -104,6 +104,8 @@ func TestBuildAddonVariables(t *testing.T) {
 				"ARGOCD_AGENT_SERVER_ADDRESS": "argocd-server.argocd.svc",
 				"ARGOCD_AGENT_SERVER_PORT":    "8080",
 				"ARGOCD_AGENT_MODE":           "managed",
+				"ARGOCD_NAMESPACE":            "argocd",
+				"ARGOCD_OPERATOR_NAMESPACE":   "argocd-operator-system",
 			},
 		},
 		{
@@ -129,6 +131,8 @@ func TestBuildAddonVariables(t *testing.T) {
 				"ARGOCD_AGENT_MODE":           "autonomous",
 				"ARGOCD_OPERATOR_IMAGE":       "quay.io/operator:v1.0.0",
 				"ARGOCD_AGENT_IMAGE":          "quay.io/agent:v2.0.0",
+				"ARGOCD_NAMESPACE":            "argocd",
+				"ARGOCD_OPERATOR_NAMESPACE":   "argocd-operator-system",
 			},
 		},
 		{
@@ -147,6 +151,8 @@ func TestBuildAddonVariables(t *testing.T) {
 			wantVars: map[string]string{
 				"ARGOCD_AGENT_SERVER_ADDRESS": "argocd-server.argocd.svc",
 				"ARGOCD_AGENT_SERVER_PORT":    "8080",
+				"ARGOCD_NAMESPACE":            "argocd",
+				"ARGOCD_OPERATOR_NAMESPACE":   "argocd-operator-system",
 			},
 		},
 	}

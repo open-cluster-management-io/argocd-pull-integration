@@ -33,11 +33,24 @@ import (
 )
 
 const (
-	operatorNamespace = "argocd-operator-system"
-	argoCDNamespace   = "argocd"
 	// PauseMarkerName is the name of the ConfigMap used to pause the addon controller
 	PauseMarkerName = "argocd-agent-addon-pause"
 )
+
+// getNamespaceConfig returns namespace configuration from environment variables or defaults
+func getNamespaceConfig() (operatorNamespace, argoCDNamespace string) {
+	operatorNamespace = os.Getenv("ARGOCD_OPERATOR_NAMESPACE")
+	if operatorNamespace == "" {
+		operatorNamespace = "argocd-operator-system"
+	}
+
+	argoCDNamespace = os.Getenv("ARGOCD_NAMESPACE")
+	if argoCDNamespace == "" {
+		argoCDNamespace = "argocd"
+	}
+
+	return operatorNamespace, argoCDNamespace
+}
 
 // uninstallArgoCDAgent uninstalls the ArgoCD agent addon in reverse order
 // Does NOT delete namespaces, only deletes operator after ArgoCD CR is gone
@@ -58,6 +71,10 @@ func (r *ArgoCDAgentCleanupReconciler) uninstallArgoCDAgent(ctx context.Context)
 func uninstallArgoCDAgentInternal(ctx context.Context, c client.Client) error {
 	klog.Info("Starting ArgoCD agent addon uninstall")
 	var cleanupErrors []error
+
+	// Get namespace configuration from environment
+	operatorNamespace, argoCDNamespace := getNamespaceConfig()
+	klog.Infof("Using namespaces - operator: %s, argocd: %s", operatorNamespace, argoCDNamespace)
 
 	// Step 0: Create pause marker to prevent the addon controller from reconciling resources
 	klog.Infof("Step 0: Creating pause marker in namespace: %s", operatorNamespace)
@@ -122,7 +139,7 @@ func uninstallArgoCDAgentInternal(ctx context.Context, c client.Client) error {
 
 	// Step 2: ArgoCD CR is gone (or timed out), now delete operator resources
 	klog.Info("Step 2: Deleting operator resources from namespace: " + operatorNamespace)
-	if err := deleteOperatorResourcesInternal(ctx, c); err != nil {
+	if err := deleteOperatorResourcesInternal(ctx, c, operatorNamespace); err != nil {
 		klog.Errorf("Error deleting operator resources (continuing with cleanup): %v", err)
 		cleanupErrors = append(cleanupErrors, fmt.Errorf("failed to delete operator resources: %w", err))
 	}
@@ -133,7 +150,7 @@ func uninstallArgoCDAgentInternal(ctx context.Context, c client.Client) error {
 	waitDuration := getCleanupVerificationWaitDuration()
 	if waitDuration > 0 {
 		klog.Infof("Step 3: Waiting and re-verifying that resources stay deleted (%v)...", waitDuration)
-		if err := waitAndVerifyCleanup(ctx, c, waitDuration); err != nil {
+		if err := waitAndVerifyCleanup(ctx, c, waitDuration, argoCDNamespace, operatorNamespace); err != nil {
 			klog.Errorf("Error during cleanup verification (resources may have been recreated): %v", err)
 			cleanupErrors = append(cleanupErrors, fmt.Errorf("cleanup verification failed: %w", err))
 		}
@@ -153,11 +170,12 @@ func uninstallArgoCDAgentInternal(ctx context.Context, c client.Client) error {
 
 // deleteOperatorResources deletes operator resources (deployment, RBAC, etc.)
 func (r *ArgoCDAgentAddonReconciler) deleteOperatorResources(ctx context.Context) error {
-	return deleteOperatorResourcesInternal(ctx, r.Client)
+	_, operatorNamespace := getNamespaceConfig()
+	return deleteOperatorResourcesInternal(ctx, r.Client, operatorNamespace)
 }
 
 // deleteOperatorResourcesInternal deletes operator resources (deployment, RBAC, etc.)
-func deleteOperatorResourcesInternal(ctx context.Context, c client.Client) error {
+func deleteOperatorResourcesInternal(ctx context.Context, c client.Client, operatorNamespace string) error {
 	klog.Info("Deleting operator resources")
 
 	// Delete resources in the operator namespace with our management label
@@ -287,7 +305,7 @@ func IsPaused(ctx context.Context, c client.Client, namespace string) bool {
 
 // waitAndVerifyCleanup waits for a specified duration and periodically verifies that
 // resources stay deleted. If resources are recreated, it deletes them again.
-func waitAndVerifyCleanup(ctx context.Context, c client.Client, waitDuration time.Duration) error {
+func waitAndVerifyCleanup(ctx context.Context, c client.Client, waitDuration time.Duration, argoCDNamespace, operatorNamespace string) error {
 	klog.Infof("Starting cleanup verification for %v", waitDuration)
 
 	checkInterval := 20 * time.Second
@@ -325,7 +343,7 @@ func waitAndVerifyCleanup(ctx context.Context, c client.Client, waitDuration tim
 
 		if operatorResourcesExist {
 			klog.Warning("Resources detected in operator namespace, attempting to delete again...")
-			if err := deleteOperatorResourcesInternal(ctx, c); err != nil {
+			if err := deleteOperatorResourcesInternal(ctx, c, operatorNamespace); err != nil {
 				klog.Errorf("Failed to re-delete operator resources: %v", err)
 			}
 		}
