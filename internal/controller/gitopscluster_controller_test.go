@@ -104,8 +104,6 @@ func TestBuildAddonVariables(t *testing.T) {
 				"ARGOCD_AGENT_SERVER_ADDRESS": "argocd-server.argocd.svc",
 				"ARGOCD_AGENT_SERVER_PORT":    "8080",
 				"ARGOCD_AGENT_MODE":           "managed",
-				"ARGOCD_NAMESPACE":            "argocd",
-				"ARGOCD_OPERATOR_NAMESPACE":   "argocd-operator-system",
 			},
 		},
 		{
@@ -131,8 +129,6 @@ func TestBuildAddonVariables(t *testing.T) {
 				"ARGOCD_AGENT_MODE":           "autonomous",
 				"ARGOCD_OPERATOR_IMAGE":       "quay.io/operator:v1.0.0",
 				"ARGOCD_AGENT_IMAGE":          "quay.io/agent:v2.0.0",
-				"ARGOCD_NAMESPACE":            "argocd",
-				"ARGOCD_OPERATOR_NAMESPACE":   "argocd-operator-system",
 			},
 		},
 		{
@@ -151,8 +147,31 @@ func TestBuildAddonVariables(t *testing.T) {
 			wantVars: map[string]string{
 				"ARGOCD_AGENT_SERVER_ADDRESS": "argocd-server.argocd.svc",
 				"ARGOCD_AGENT_SERVER_PORT":    "8080",
-				"ARGOCD_NAMESPACE":            "argocd",
-				"ARGOCD_OPERATOR_NAMESPACE":   "argocd-operator-system",
+			},
+		},
+		{
+			name: "with custom namespaces",
+			gitOpsCluster: &appsv1alpha1.GitOpsCluster{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-cluster",
+					Namespace: "argocd",
+				},
+				Spec: appsv1alpha1.GitOpsClusterSpec{
+					ArgoCDAgentAddon: appsv1alpha1.ArgoCDAgentAddonSpec{
+						Mode:              "managed",
+						AgentNamespace:    "custom-argocd",
+						OperatorNamespace: "custom-operator",
+					},
+				},
+			},
+			serverAddress: "argocd-server.argocd.svc",
+			serverPort:    "8080",
+			wantVars: map[string]string{
+				"ARGOCD_AGENT_SERVER_ADDRESS": "argocd-server.argocd.svc",
+				"ARGOCD_AGENT_SERVER_PORT":    "8080",
+				"ARGOCD_AGENT_MODE":           "managed",
+				"ARGOCD_NAMESPACE":            "custom-argocd",
+				"ARGOCD_OPERATOR_NAMESPACE":   "custom-operator",
 			},
 		},
 	}

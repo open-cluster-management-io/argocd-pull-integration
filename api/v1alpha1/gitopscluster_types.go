@@ -54,6 +54,14 @@ type ArgoCDAgentAddonSpec struct {
 	// AgentImage is the ArgoCD agent image to use
 	// +optional
 	AgentImage string `json:"agentImage,omitempty"`
+
+	// OperatorNamespace is the namespace where the ArgoCD operator will be deployed on the managed cluster
+	// +optional
+	OperatorNamespace string `json:"operatorNamespace,omitempty"`
+
+	// AgentNamespace is the namespace where the ArgoCD agent (ArgoCD CR) will be deployed on the managed cluster
+	// +optional
+	AgentNamespace string `json:"agentNamespace,omitempty"`
 }
 
 // GitOpsClusterStatus defines the observed state of GitOpsCluster

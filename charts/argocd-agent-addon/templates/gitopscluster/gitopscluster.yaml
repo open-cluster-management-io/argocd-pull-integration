@@ -16,3 +16,9 @@ spec:
     principalServerPort: {{ .Values.gitOpsCluster.principalServerPort | quote }}
     {{- end }}
     mode: {{ .Values.gitOpsCluster.mode }}
+    {{- if .Values.gitOpsCluster.argoCDAgentAddon.agentNamespace }}
+    agentNamespace: {{ .Values.gitOpsCluster.argoCDAgentAddon.agentNamespace }}
+    {{- end }}
+    {{- if .Values.gitOpsCluster.argoCDAgentAddon.operatorNamespace }}
+    operatorNamespace: {{ .Values.gitOpsCluster.argoCDAgentAddon.operatorNamespace }}
+    {{- end }}

@@ -36,8 +36,10 @@ var _ = Describe("ArgoCD Agent Addon Custom Namespace E2E", Label("custom-namesp
 	SetDefaultEventuallyPollingInterval(5 * time.Second)
 
 	var (
-		hubArgoCDNamespace   string
-		spokeArgoCDNamespace string
+		hubArgoCDNamespace           string
+		hubArgoCDOperatorNamespace   string
+		spokeArgoCDNamespace         string
+		spokeArgoCDOperatorNamespace string
 	)
 
 	BeforeAll(func() {
@@ -46,13 +48,24 @@ var _ = Describe("ArgoCD Agent Addon Custom Namespace E2E", Label("custom-namesp
 		if hubArgoCDNamespace == "" {
 			hubArgoCDNamespace = "notargocd"
 		}
+		hubArgoCDOperatorNamespace = os.Getenv("HUB_ARGOCD_OPERATOR_NAMESPACE")
+		if hubArgoCDOperatorNamespace == "" {
+			hubArgoCDOperatorNamespace = "notargocd-operator-system"
+		}
 		spokeArgoCDNamespace = os.Getenv("SPOKE_ARGOCD_NAMESPACE")
 		if spokeArgoCDNamespace == "" {
-			// Spoke uses the same namespace as the GitOpsCluster namespace (hub namespace)
-			spokeArgoCDNamespace = hubArgoCDNamespace
+			spokeArgoCDNamespace = "argocdnot"
+		}
+		spokeArgoCDOperatorNamespace = os.Getenv("SPOKE_ARGOCD_OPERATOR_NAMESPACE")
+		if spokeArgoCDOperatorNamespace == "" {
+			spokeArgoCDOperatorNamespace = "argocdnot-operator-system"
 		}
 
-		fmt.Fprintf(GinkgoWriter, "Using custom namespaces - Hub: %s, Spoke: %s\n", hubArgoCDNamespace, spokeArgoCDNamespace)
+		fmt.Fprintf(GinkgoWriter, "Using custom namespaces:\n")
+		fmt.Fprintf(GinkgoWriter, "  Hub ArgoCD: %s\n", hubArgoCDNamespace)
+		fmt.Fprintf(GinkgoWriter, "  Hub Operator: %s\n", hubArgoCDOperatorNamespace)
+		fmt.Fprintf(GinkgoWriter, "  Spoke ArgoCD: %s\n", spokeArgoCDNamespace)
+		fmt.Fprintf(GinkgoWriter, "  Spoke Operator: %s\n", spokeArgoCDOperatorNamespace)
 
 		By("Verifying test environment is ready")
 		// Environment setup is done by Makefile
@@ -69,8 +82,10 @@ var _ = Describe("ArgoCD Agent Addon Custom Namespace E2E", Label("custom-namesp
 		By("Test complete - clusters preserved for inspection")
 		fmt.Fprintf(GinkgoWriter, "\n")
 		fmt.Fprintf(GinkgoWriter, "Clusters have been preserved for inspection:\n")
-		fmt.Fprintf(GinkgoWriter, "  Hub: kubectl config use-context kind-hub (ArgoCD in %s namespace)\n", hubArgoCDNamespace)
-		fmt.Fprintf(GinkgoWriter, "  Spoke: kubectl config use-context kind-cluster1 (ArgoCD in %s namespace - same as GitOpsCluster namespace)\n", spokeArgoCDNamespace)
+		fmt.Fprintf(GinkgoWriter, "  Hub: kubectl config use-context kind-hub\n")
+		fmt.Fprintf(GinkgoWriter, "    ArgoCD: %s, Operator: %s\n", hubArgoCDNamespace, hubArgoCDOperatorNamespace)
+		fmt.Fprintf(GinkgoWriter, "  Spoke: kubectl config use-context kind-cluster1\n")
+		fmt.Fprintf(GinkgoWriter, "    ArgoCD: %s, Operator: %s\n", spokeArgoCDNamespace, spokeArgoCDOperatorNamespace)
 		fmt.Fprintf(GinkgoWriter, "\n")
 	})
 
@@ -130,6 +145,20 @@ var _ = Describe("ArgoCD Agent Addon Custom Namespace E2E", Label("custom-namesp
 				output, err := utils.Run(cmd)
 				g.Expect(err).NotTo(HaveOccurred())
 				g.Expect(output).To(Equal("True"))
+			}).Should(Succeed())
+		})
+
+		It("should verify ArgoCD operator running on hub in custom operator namespace", func() {
+			By("verifying ArgoCD operator pod is running")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "--context", hubContext,
+					"get", "pods",
+					"-n", hubArgoCDOperatorNamespace,
+					"-l", "control-plane=argocd-operator",
+					"-o", "jsonpath={.items[0].status.phase}")
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).To(Equal("Running"))
 			}).Should(Succeed())
 		})
 
@@ -201,6 +230,28 @@ var _ = Describe("ArgoCD Agent Addon Custom Namespace E2E", Label("custom-namesp
 					"get", "pods",
 					"-l", "app=argocd-agent-addon",
 					"-n", addonNamespace,
+					"-o", "jsonpath={.items[0].status.phase}")
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).To(Equal("Running"))
+			}).Should(Succeed())
+		})
+
+		It("should verify ArgoCD operator running on spoke in custom operator namespace", func() {
+			By("verifying ArgoCD operator namespace exists")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "--context", cluster1Context,
+					"get", "namespace", spokeArgoCDOperatorNamespace)
+				_, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+			}).Should(Succeed())
+
+			By("verifying ArgoCD operator pod is running")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "--context", cluster1Context,
+					"get", "pods",
+					"-n", spokeArgoCDOperatorNamespace,
+					"-l", "control-plane=argocd-operator",
 					"-o", "jsonpath={.items[0].status.phase}")
 				output, err := utils.Run(cmd)
 				g.Expect(err).NotTo(HaveOccurred())

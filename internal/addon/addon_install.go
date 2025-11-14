@@ -19,6 +19,7 @@ package addon
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
@@ -28,6 +29,27 @@ import (
 	"k8s.io/klog/v2"
 	"open-cluster-management.io/argocd-pull-integration/internal/pkg/images"
 )
+
+const (
+	// Default namespace constants
+	operatorNamespace = "argocd-operator-system"
+	argoCDNamespace   = "argocd"
+)
+
+// getNamespaceConfig returns namespace configuration from environment variables or defaults
+func getNamespaceConfig() (string, string) {
+	opNamespace := os.Getenv("ARGOCD_OPERATOR_NAMESPACE")
+	if opNamespace == "" {
+		opNamespace = operatorNamespace
+	}
+
+	agentNamespace := os.Getenv("ARGOCD_NAMESPACE")
+	if agentNamespace == "" {
+		agentNamespace = argoCDNamespace
+	}
+
+	return opNamespace, agentNamespace
+}
 
 // ensureNamespace creates a namespace if it doesn't exist
 func (r *ArgoCDAgentAddonReconciler) ensureNamespace(ctx context.Context, namespaceName string) error {

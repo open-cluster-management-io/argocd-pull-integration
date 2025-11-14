@@ -220,10 +220,17 @@ func (r *GitOpsClusterReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	}
 
 	// 9) Create the manifestwork for the argocd-agent-ca
+	// Determine the spoke ArgoCD namespace - either from spec or default to "argocd"
+	spokeArgoCDNamespace := "argocd"
+	if gitOpsCluster.Spec.ArgoCDAgentAddon.AgentNamespace != "" {
+		spokeArgoCDNamespace = gitOpsCluster.Spec.ArgoCDAgentAddon.AgentNamespace
+	}
+
 	if len(managedClusters) > 0 {
 		failedMWClusters := []string{}
 		for _, managedCluster := range managedClusters {
-			if err := r.createArgoCDAgentManifestWork(ctx, argoCDNamespace, managedCluster); err != nil {
+			// Pass both hub namespace (where CA cert is stored) and spoke namespace (where it should be created)
+			if err := r.createArgoCDAgentManifestWork(ctx, argoCDNamespace, spokeArgoCDNamespace, managedCluster); err != nil {
 				klog.ErrorS(err, "Failed to create ManifestWork", "cluster", managedCluster.Name)
 				failedMWClusters = append(failedMWClusters, managedCluster.Name)
 			}
@@ -472,11 +479,18 @@ func (r *GitOpsClusterReconciler) buildAddonVariables(
 		variables["ARGOCD_AGENT_MODE"] = gitOpsCluster.Spec.ArgoCDAgentAddon.Mode
 	}
 
-	// Add namespace configuration - use GitOpsCluster's namespace as the ArgoCD namespace on spoke
-	// This is the namespace where the ArgoCD CR will be deployed on the managed/spoke cluster
-	variables["ARGOCD_NAMESPACE"] = gitOpsCluster.Namespace
-	// Default operator namespace
-	variables["ARGOCD_OPERATOR_NAMESPACE"] = "argocd-operator-system"
+	// Add namespace configuration
+	// AgentNamespace: where the ArgoCD CR will be deployed on the managed/spoke cluster
+	// If not specified, addon will use defaults
+	if gitOpsCluster.Spec.ArgoCDAgentAddon.AgentNamespace != "" {
+		variables["ARGOCD_NAMESPACE"] = gitOpsCluster.Spec.ArgoCDAgentAddon.AgentNamespace
+	}
+
+	// OperatorNamespace: where the ArgoCD operator will be deployed on the managed/spoke cluster
+	// If not specified, addon will use defaults
+	if gitOpsCluster.Spec.ArgoCDAgentAddon.OperatorNamespace != "" {
+		variables["ARGOCD_OPERATOR_NAMESPACE"] = gitOpsCluster.Spec.ArgoCDAgentAddon.OperatorNamespace
+	}
 
 	// Add operator image if specified
 	if gitOpsCluster.Spec.ArgoCDAgentAddon.OperatorImage != "" {

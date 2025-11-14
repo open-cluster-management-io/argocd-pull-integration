@@ -11,13 +11,13 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: argocd-operator-controller-manager
-  namespace: argocd-operator-system
+  namespace: {{ .Values.global.argoCDOperatorNamespace }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
   name: argocd-operator-leader-election-role
-  namespace: argocd-operator-system
+  namespace: {{ .Values.global.argoCDOperatorNamespace }}
 rules:
 - apiGroups:
   - ""
@@ -295,7 +295,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
   name: argocd-operator-leader-election-rolebinding
-  namespace: argocd-operator-system
+  namespace: {{ .Values.global.argoCDOperatorNamespace }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
@@ -303,7 +303,7 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: argocd-operator-controller-manager
-  namespace: argocd-operator-system
+  namespace: {{ .Values.global.argoCDOperatorNamespace }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -316,7 +316,7 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: argocd-operator-controller-manager
-  namespace: argocd-operator-system
+  namespace: {{ .Values.global.argoCDOperatorNamespace }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -329,7 +329,7 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: argocd-operator-controller-manager
-  namespace: argocd-operator-system
+  namespace: {{ .Values.global.argoCDOperatorNamespace }}
 ---
 apiVersion: v1
 data:
@@ -348,7 +348,7 @@ data:
 kind: ConfigMap
 metadata:
   name: argocd-operator-manager-config
-  namespace: argocd-operator-system
+  namespace: {{ .Values.global.argoCDOperatorNamespace }}
 ---
 apiVersion: v1
 kind: Service
@@ -356,7 +356,7 @@ metadata:
   labels:
     control-plane: argocd-operator
   name: argocd-operator-controller-manager-metrics-service
-  namespace: argocd-operator-system
+  namespace: {{ .Values.global.argoCDOperatorNamespace }}
 spec:
   ports:
   - name: https
@@ -369,7 +369,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: argocd-operator-webhook-service
-  namespace: argocd-operator-system
+  namespace: {{ .Values.global.argoCDOperatorNamespace }}
 spec:
   ports:
   - port: 443
@@ -384,7 +384,7 @@ metadata:
   labels:
     control-plane: argocd-operator
   name: argocd-operator-controller-manager
-  namespace: argocd-operator-system
+  namespace: {{ .Values.global.argoCDOperatorNamespace }}
 spec:
   replicas: 1
   selector:
