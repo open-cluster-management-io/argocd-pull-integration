@@ -105,6 +105,9 @@ func (r *ArgoCDAgentAddonReconciler) Start(ctx context.Context) error {
 func (r *ArgoCDAgentAddonReconciler) reconcile(ctx context.Context) {
 	klog.V(2).Info("Reconciling ArgoCD Agent Addon")
 
+	// Get namespace configuration from environment
+	operatorNamespace, _ := getNamespaceConfig()
+
 	// Check if controller is paused (during cleanup)
 	if IsPaused(ctx, r.Client, operatorNamespace) {
 		klog.Info("ArgoCD Agent Addon controller is paused, skipping reconciliation")

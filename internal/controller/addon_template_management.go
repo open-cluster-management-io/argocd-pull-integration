@@ -173,6 +173,14 @@ func buildAddonManifests(addonImage, operatorImage, agentImage string) []workv1.
 												Name:  "ARGOCD_AGENT_IMAGE",
 												Value: agentImage,
 											},
+											{
+												Name:  "ARGOCD_NAMESPACE",
+												Value: "{{ARGOCD_NAMESPACE}}",
+											},
+											{
+												Name:  "ARGOCD_OPERATOR_NAMESPACE",
+												Value: "{{ARGOCD_OPERATOR_NAMESPACE}}",
+											},
 										},
 									},
 								},
@@ -280,6 +288,14 @@ func buildAddonManifests(addonImage, operatorImage, agentImage string) []workv1.
 											{
 												Name:  "ARGOCD_AGENT_MODE",
 												Value: "{{ARGOCD_AGENT_MODE}}",
+											},
+											{
+												Name:  "ARGOCD_NAMESPACE",
+												Value: "{{ARGOCD_NAMESPACE}}",
+											},
+											{
+												Name:  "ARGOCD_OPERATOR_NAMESPACE",
+												Value: "{{ARGOCD_OPERATOR_NAMESPACE}}",
 											},
 										},
 										SecurityContext: &corev1.SecurityContext{

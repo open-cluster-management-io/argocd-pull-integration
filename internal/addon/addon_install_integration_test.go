@@ -61,14 +61,14 @@ func TestEnsureNamespace(t *testing.T) {
 		},
 		{
 			name:          "creates operator namespace",
-			namespaceName: operatorNamespace,
+			namespaceName: "argocd-operator-system",
 			existingObjs:  []runtime.Object{},
 			wantErr:       false,
 			checkLabels:   true,
 		},
 		{
 			name:          "creates argocd namespace",
-			namespaceName: argoCDNamespace,
+			namespaceName: "argocd",
 			existingObjs:  []runtime.Object{},
 			wantErr:       false,
 			checkLabels:   true,
@@ -171,7 +171,7 @@ func TestCopyClientCertificate(t *testing.T) {
 				&corev1.Secret{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "argocd-agent-ca",
-						Namespace: argoCDNamespace,
+						Namespace: "argocd",
 					},
 					Data: map[string][]byte{
 						"tls.crt": []byte("ca-cert"),
@@ -268,7 +268,7 @@ func TestUninstallArgoCDAgent(t *testing.T) {
 			existingObjs: []runtime.Object{
 				&corev1.Namespace{
 					ObjectMeta: metav1.ObjectMeta{
-						Name: operatorNamespace,
+						Name: "argocd-operator-system",
 					},
 				},
 			},
@@ -311,7 +311,7 @@ func TestDeleteOperatorResources(t *testing.T) {
 			existingObjs: []runtime.Object{
 				&corev1.Namespace{
 					ObjectMeta: metav1.ObjectMeta{
-						Name: operatorNamespace,
+						Name: "argocd-operator-system",
 					},
 				},
 			},

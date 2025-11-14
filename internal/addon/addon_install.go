@@ -104,6 +104,10 @@ func (r *ArgoCDAgentAddonReconciler) ensureNamespace(ctx context.Context, namesp
 func (r *ArgoCDAgentAddonReconciler) installOrUpdateArgoCDAgent(ctx context.Context) error {
 	klog.V(1).Info("Templating and applying ArgoCD agent addon")
 
+	// Get namespace configuration from environment
+	operatorNamespace, argoCDNamespace := getNamespaceConfig()
+	klog.Infof("Using namespaces - operator: %s, argocd: %s", operatorNamespace, argoCDNamespace)
+
 	// Set defaults if images are not provided
 	operatorImage := r.ArgoCDOperatorImage
 	if operatorImage == "" {
@@ -133,7 +137,7 @@ func (r *ArgoCDAgentAddonReconciler) installOrUpdateArgoCDAgent(ctx context.Cont
 	}
 
 	// 4. Template and apply ArgoCD operator with the resolved images
-	if err := r.templateAndApplyChart(ctx, "charts/argocd-agent-addon", operatorNamespace, "argocd-agent-addon", operatorImage, agentImage); err != nil {
+	if err := r.templateAndApplyChart(ctx, "charts/argocd-agent-addon", operatorNamespace, argoCDNamespace, "argocd-agent-addon", operatorImage, agentImage); err != nil {
 		return fmt.Errorf("failed to template and apply ArgoCD operator: %w", err)
 	}
 
@@ -181,6 +185,9 @@ func ParseImageReference(imageRef string) (string, string, error) {
 
 // copyClientCertificate copies the OCM client certificate to the ArgoCD namespace as a TLS secret
 func (r *ArgoCDAgentAddonReconciler) copyClientCertificate(ctx context.Context) error {
+	// Get namespace configuration from environment
+	_, argoCDNamespace := getNamespaceConfig()
+
 	// Get the secret from OCM addon namespace
 	sourceSecret := &corev1.Secret{}
 	sourceKey := types.NamespacedName{

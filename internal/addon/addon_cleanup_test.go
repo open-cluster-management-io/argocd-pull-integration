@@ -56,7 +56,7 @@ func TestUninstallArgoCDAgentInternal(t *testing.T) {
 						"kind":       "ArgoCD",
 						"metadata": map[string]interface{}{
 							"name":      "argocd",
-							"namespace": argoCDNamespace,
+							"namespace": "argocd",
 						},
 					},
 				},
@@ -95,7 +95,7 @@ func TestDeleteOperatorResourcesInternal(t *testing.T) {
 			"kind":       "Deployment",
 			"metadata": map[string]interface{}{
 				"name":      "test-operator",
-				"namespace": operatorNamespace,
+				"namespace": "argocd-operator-system",
 				"labels": map[string]interface{}{
 					"app.kubernetes.io/managed-by": "argocd-agent-addon",
 				},
@@ -130,7 +130,7 @@ func TestDeleteOperatorResourcesInternal(t *testing.T) {
 				Build()
 
 			ctx := context.Background()
-			err := deleteOperatorResourcesInternal(ctx, c)
+			err := deleteOperatorResourcesInternal(ctx, c, "argocd-operator-system")
 			if (err != nil) != tt.expectError {
 				t.Errorf("deleteOperatorResourcesInternal() error = %v, expectError %v", err, tt.expectError)
 			}
@@ -142,7 +142,7 @@ func TestDeleteOperatorResourcesInternal(t *testing.T) {
 				deployment.SetKind("Deployment")
 				err := c.Get(ctx, types.NamespacedName{
 					Name:      "test-operator",
-					Namespace: operatorNamespace,
+					Namespace: "argocd-operator-system",
 				}, deployment)
 				// Should be not found after deletion
 				if err == nil {
@@ -167,19 +167,19 @@ func TestCreatePauseMarker(t *testing.T) {
 	}{
 		{
 			name:          "create pause marker in empty namespace",
-			namespace:     operatorNamespace,
+			namespace:     "argocd-operator-system",
 			existingObjs:  []runtime.Object{},
 			expectError:   false,
 			expectCreated: true,
 		},
 		{
 			name:      "pause marker already exists",
-			namespace: operatorNamespace,
+			namespace: "argocd-operator-system",
 			existingObjs: []runtime.Object{
 				&corev1.ConfigMap{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      PauseMarkerName,
-						Namespace: operatorNamespace,
+						Namespace: "argocd-operator-system",
 					},
 					Data: map[string]string{
 						"paused": "true",
@@ -240,18 +240,18 @@ func TestIsPaused(t *testing.T) {
 	}{
 		{
 			name:         "no pause marker exists",
-			namespace:    operatorNamespace,
+			namespace:    "argocd-operator-system",
 			existingObjs: []runtime.Object{},
 			expectPaused: false,
 		},
 		{
 			name:      "pause marker exists with paused=true",
-			namespace: operatorNamespace,
+			namespace: "argocd-operator-system",
 			existingObjs: []runtime.Object{
 				&corev1.ConfigMap{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      PauseMarkerName,
-						Namespace: operatorNamespace,
+						Namespace: "argocd-operator-system",
 					},
 					Data: map[string]string{
 						"paused": "true",
@@ -263,12 +263,12 @@ func TestIsPaused(t *testing.T) {
 		},
 		{
 			name:      "pause marker exists with paused=false",
-			namespace: operatorNamespace,
+			namespace: "argocd-operator-system",
 			existingObjs: []runtime.Object{
 				&corev1.ConfigMap{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      PauseMarkerName,
-						Namespace: operatorNamespace,
+						Namespace: "argocd-operator-system",
 					},
 					Data: map[string]string{
 						"paused": "false",
@@ -279,12 +279,12 @@ func TestIsPaused(t *testing.T) {
 		},
 		{
 			name:      "pause marker exists without paused field",
-			namespace: operatorNamespace,
+			namespace: "argocd-operator-system",
 			existingObjs: []runtime.Object{
 				&corev1.ConfigMap{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      PauseMarkerName,
-						Namespace: operatorNamespace,
+						Namespace: "argocd-operator-system",
 					},
 					Data: map[string]string{
 						"reason": "test",
@@ -324,14 +324,14 @@ func TestVerifyNamespaceCleanup(t *testing.T) {
 	}{
 		{
 			name:                 "no resources exist",
-			namespace:            operatorNamespace,
+			namespace:            "argocd-operator-system",
 			existingObjs:         []runtime.Object{},
 			expectResourcesExist: false,
 			expectError:          false,
 		},
 		{
 			name:      "deployment exists with addon label",
-			namespace: operatorNamespace,
+			namespace: "argocd-operator-system",
 			existingObjs: []runtime.Object{
 				&unstructured.Unstructured{
 					Object: map[string]interface{}{
@@ -339,7 +339,7 @@ func TestVerifyNamespaceCleanup(t *testing.T) {
 						"kind":       "Deployment",
 						"metadata": map[string]interface{}{
 							"name":      "test-operator",
-							"namespace": operatorNamespace,
+							"namespace": "argocd-operator-system",
 							"labels": map[string]interface{}{
 								"app.kubernetes.io/managed-by": "argocd-agent-addon",
 							},
@@ -352,7 +352,7 @@ func TestVerifyNamespaceCleanup(t *testing.T) {
 		},
 		{
 			name:      "deployment exists without addon label",
-			namespace: operatorNamespace,
+			namespace: "argocd-operator-system",
 			existingObjs: []runtime.Object{
 				&unstructured.Unstructured{
 					Object: map[string]interface{}{
@@ -360,7 +360,7 @@ func TestVerifyNamespaceCleanup(t *testing.T) {
 						"kind":       "Deployment",
 						"metadata": map[string]interface{}{
 							"name":      "other-deployment",
-							"namespace": operatorNamespace,
+							"namespace": "argocd-operator-system",
 							"labels": map[string]interface{}{
 								"app": "other",
 							},

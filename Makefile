@@ -69,6 +69,22 @@ E2E_IMG ?= quay.io/open-cluster-management/argocd-pull-integration:latest
 
 ##@ E2E Tests
 
+.PHONY: setup-e2e-clusters
+setup-e2e-clusters: ## Setup KinD clusters, build and load controller image
+	@echo "===== Cleaning up existing clusters ====="
+	$(KIND) delete clusters --all || true
+	@echo ""
+	@echo "===== Creating KinD clusters ====="
+	$(KIND) create cluster --name $(HUB_CLUSTER)
+	$(KIND) create cluster --name $(SPOKE_CLUSTER)
+	@echo ""
+	@echo "===== Building controller image ====="
+	$(MAKE) docker-build IMG=$(E2E_IMG)
+	@echo ""
+	@echo "===== Loading image to clusters ====="
+	$(KIND) load docker-image $(E2E_IMG) --name $(HUB_CLUSTER)
+	$(KIND) load docker-image $(E2E_IMG) --name $(SPOKE_CLUSTER)
+
 .PHONY: test-e2e
 test-e2e: manifests generate fmt vet ## Run e2e deployment tests only (checks pods running and logs)
 	@echo "===== Installing MetalLB ====="
@@ -79,12 +95,10 @@ test-e2e: manifests generate fmt vet ## Run e2e deployment tests only (checks po
 	@echo ""
 	@echo "===== Installing addon via Helm ====="
 	$(KUBECTL) config use-context kind-$(HUB_CLUSTER)
-	$(KUBECTL) create namespace argocd || true
-	$(KUBECTL) label namespace argocd app.kubernetes.io/managed-by=Helm --overwrite
-	$(KUBECTL) annotate namespace argocd meta.helm.sh/release-name=argocd-agent-addon meta.helm.sh/release-namespace=argocd --overwrite
 	helm install argocd-agent-addon \
 		./charts/argocd-agent-addon \
 		--namespace argocd \
+		--create-namespace \
 		--set image=quay.io/open-cluster-management/argocd-pull-integration \
 		--set tag=latest \
 		--wait \
@@ -117,19 +131,7 @@ test-e2e-integration: ## Run full e2e integration tests including AppProject and
 
 .PHONY: test-e2e-full
 test-e2e-full: ## Complete e2e test with kind cluster setup, build, deployment, and full integration tests
-	@echo "===== Cleaning up existing clusters ====="
-	$(KIND) delete clusters --all || true
-	@echo ""
-	@echo "===== Creating KinD clusters ====="
-	$(KIND) create cluster --name $(HUB_CLUSTER)
-	$(KIND) create cluster --name $(SPOKE_CLUSTER)
-	@echo ""
-	@echo "===== Building controller image ====="
-	$(MAKE) docker-build IMG=$(E2E_IMG)
-	@echo ""
-	@echo "===== Loading image to clusters ====="
-	$(KIND) load docker-image $(E2E_IMG) --name $(HUB_CLUSTER)
-	$(KIND) load docker-image $(E2E_IMG) --name $(SPOKE_CLUSTER)
+	$(MAKE) setup-e2e-clusters
 	@echo ""
 	@echo "===== Running deployment tests ====="
 	$(MAKE) test-e2e
@@ -171,12 +173,10 @@ test-e2e-cleanup: manifests generate fmt vet ## Run e2e cleanup tests (checks ad
 	@echo ""
 	@echo "===== Installing addon via Helm ====="
 	$(KUBECTL) config use-context kind-$(HUB_CLUSTER)
-	$(KUBECTL) create namespace argocd || true
-	$(KUBECTL) label namespace argocd app.kubernetes.io/managed-by=Helm --overwrite
-	$(KUBECTL) annotate namespace argocd meta.helm.sh/release-name=argocd-agent-addon meta.helm.sh/release-namespace=argocd --overwrite
 	helm install argocd-agent-addon \
 		./charts/argocd-agent-addon \
 		--namespace argocd \
+		--create-namespace \
 		--set image=quay.io/open-cluster-management/argocd-pull-integration \
 		--set tag=latest \
 		--wait \
@@ -189,19 +189,7 @@ test-e2e-cleanup: manifests generate fmt vet ## Run e2e cleanup tests (checks ad
 
 .PHONY: test-e2e-cleanup-full
 test-e2e-cleanup-full: ## Complete e2e test with cleanup verification including Application (cluster setup + deployment + cleanup)
-	@echo "===== Cleaning up existing clusters ====="
-	$(KIND) delete clusters --all || true
-	@echo ""
-	@echo "===== Creating KinD clusters ====="
-	$(KIND) create cluster --name $(HUB_CLUSTER)
-	$(KIND) create cluster --name $(SPOKE_CLUSTER)
-	@echo ""
-	@echo "===== Building controller image ====="
-	$(MAKE) docker-build IMG=$(E2E_IMG)
-	@echo ""
-	@echo "===== Loading image to clusters ====="
-	$(KIND) load docker-image $(E2E_IMG) --name $(HUB_CLUSTER)
-	$(KIND) load docker-image $(E2E_IMG) --name $(SPOKE_CLUSTER)
+	$(MAKE) setup-e2e-clusters
 	@echo ""
 	@echo "===== Installing MetalLB ====="
 	./test/e2e/scripts/install_metallb.sh
@@ -211,12 +199,10 @@ test-e2e-cleanup-full: ## Complete e2e test with cleanup verification including 
 	@echo ""
 	@echo "===== Installing addon via Helm ====="
 	$(KUBECTL) config use-context kind-$(HUB_CLUSTER)
-	$(KUBECTL) create namespace argocd || true
-	$(KUBECTL) label namespace argocd app.kubernetes.io/managed-by=Helm --overwrite
-	$(KUBECTL) annotate namespace argocd meta.helm.sh/release-name=argocd-agent-addon meta.helm.sh/release-namespace=argocd --overwrite
 	helm install argocd-agent-addon \
 		./charts/argocd-agent-addon \
 		--namespace argocd \
+		--create-namespace \
 		--set image=quay.io/open-cluster-management/argocd-pull-integration \
 		--set tag=latest \
 		--wait \
@@ -228,6 +214,42 @@ test-e2e-cleanup-full: ## Complete e2e test with cleanup verification including 
 	@echo "===== E2E Cleanup Full Tests Complete ====="
 	@echo "Hub context: kind-$(HUB_CLUSTER)"
 	@echo "Spoke context: kind-$(SPOKE_CLUSTER)"
+
+.PHONY: test-e2e-custom-namespace
+test-e2e-custom-namespace: manifests generate fmt vet ## Run e2e test with custom ArgoCD namespaces (hub: notargocd, spoke: argocdnot)
+	@echo "===== Installing MetalLB ====="
+	./test/e2e/scripts/install_metallb.sh
+	@echo ""
+	@echo "===== Setting up OCM environment ====="
+	./test/e2e/scripts/setup_ocm_env.sh
+	@echo ""
+	@echo "===== Installing addon via Helm with custom namespaces ====="
+	$(KUBECTL) config use-context kind-$(HUB_CLUSTER)
+	helm install argocd-agent-addon \
+		./charts/argocd-agent-addon \
+		--namespace notargocd \
+		--create-namespace \
+		--set global.argoCDNamespace=notargocd \
+		--set global.argoCDOperatorNamespace=argocd-operator-system \
+		--set controller.namespace=notargocd \
+		--set gitOpsCluster.namespace=notargocd \
+		--set image=quay.io/open-cluster-management/argocd-pull-integration \
+		--set tag=latest \
+		--wait \
+		--timeout 10m
+	@echo ""
+	@echo "===== Running e2e tests with custom namespaces ====="
+	HUB_ARGOCD_NAMESPACE=notargocd go test -tags=e2e ./test/e2e/ -v -ginkgo.v --ginkgo.label-filter="custom-namespace"
+	@echo ""
+	@echo "===== E2E Custom Namespace Tests Complete ====="
+	@echo "Hub context: kind-$(HUB_CLUSTER) (ArgoCD in notargocd namespace)"
+	@echo "Spoke context: kind-$(SPOKE_CLUSTER) (ArgoCD in notargocd namespace)"
+
+.PHONY: test-e2e-custom-namespace-full
+test-e2e-custom-namespace-full: ## Complete e2e test with custom namespaces (cluster setup + custom namespace deployment + tests)
+	$(MAKE) setup-e2e-clusters
+	@echo ""
+	$(MAKE) test-e2e-custom-namespace
 
 ##@ Build
 

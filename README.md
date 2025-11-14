@@ -138,7 +138,7 @@ For detailed argocd-agent architecture and operational modes, see [argocd-agent 
 helm repo add ocm https://open-cluster-management.io/helm-charts
 helm repo update
 helm search repo ocm
-helm install argocd-agent-addon ocm/argocd-agent-addon
+helm install argocd-agent-addon ocm/argocd-agent-addon --namespace argocd --create-namespace
 ```
 
 This installs the GitOpsCluster controller and creates a GitOpsCluster resource that automatically deploys argocd-agent to your managed clusters.
