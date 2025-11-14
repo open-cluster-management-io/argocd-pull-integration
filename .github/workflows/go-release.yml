@@ -99,8 +99,8 @@ jobs:
           sed -i "s/^appVersion:.*/appVersion: ${RELEASE_VERSION}/" charts/${{ env.CHART_NAME }}/Chart.yaml
           sed -i "s/^version:.*/version: ${RELEASE_VERSION}/" charts/${{ env.CHART_NAME }}/Chart.yaml
           
-          # Remove the 'tag: latest' line from values.yaml so it defaults to Chart.appVersion
-          sed -i '/^tag: latest$/d' charts/${{ env.CHART_NAME }}/values.yaml
+          # Update tag in values.yaml to match release version
+          sed -i "s/^tag:.*/tag: ${RELEASE_VERSION}/" charts/${{ env.CHART_NAME }}/values.yaml
           
           # Do the same for internal addon chart
           sed -i "s/^appVersion:.*/appVersion: ${RELEASE_VERSION}/" internal/addon/charts/${{ env.CHART_NAME }}/Chart.yaml
