@@ -1,0 +1,11 @@
+# Controller manager image settings
+# For development (main branch): use "latest" tag
+# For release branches: update tag to match the release version (e.g., "0.26.0")
+image: quay.io/open-cluster-management/argocd-pull-integration
+tag: latest
+replicas: 1
+
+argocd:
+  image:
+    repository: quay.io/argoproj/argocd
+    tag: v3.0.6

@@ -257,6 +257,51 @@ test-e2e-custom-namespace-full: ## Complete e2e test with custom namespaces (clu
 	@echo ""
 	$(MAKE) test-e2e-custom-namespace
 
+.PHONY: test-e2e-basic
+test-e2e-basic: manifests generate fmt vet ## Run e2e tests for basic pull model (assumes clusters exist and images loaded)
+	@echo "===== Setting up OCM environment ====="
+	./test/e2e/scripts/setup_ocm_env.sh
+	@echo ""
+	@echo "===== Installing ArgoCD on hub cluster (optimized) ====="
+	$(KUBECTL) config use-context kind-$(HUB_CLUSTER)
+	$(KUBECTL) create namespace argocd --dry-run=client -o yaml | $(KUBECTL) apply -f -
+	$(KUBECTL) apply -n argocd --force -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+	$(KUBECTL) -n argocd scale deployment/argocd-dex-server --replicas 0
+	$(KUBECTL) -n argocd scale deployment/argocd-repo-server --replicas 0
+	$(KUBECTL) -n argocd scale deployment/argocd-server --replicas 0
+	$(KUBECTL) -n argocd scale deployment/argocd-redis --replicas 0
+	$(KUBECTL) -n argocd scale deployment/argocd-notifications-controller --replicas 0
+	$(KUBECTL) -n argocd scale statefulset/argocd-application-controller --replicas 0
+	$(KUBECTL) -n argocd patch configmap argocd-cmd-params-cm --type merge -p '{"data":{"applicationsetcontroller.enable.progressive.syncs":"true"}}'
+	$(KUBECTL) -n argocd rollout restart deployment argocd-applicationset-controller
+	$(KUBECTL) -n argocd rollout status deployment argocd-applicationset-controller --timeout=60s
+	@echo ""
+	@echo "===== Installing basic pull controller via Helm ====="
+	$(KUBECTL) config use-context kind-$(HUB_CLUSTER)
+	helm install argocd-pull-integration \
+		./charts/argocd-pull-integration \
+		--namespace argocd \
+		--wait \
+		--timeout 10m
+	@echo ""
+	$(KUBECTL) apply -f hack/e2e/mca.yaml --context kind-$(HUB_CLUSTER)
+	$(KUBECTL) apply -f hack/e2e/appproj.yaml --context kind-$(HUB_CLUSTER)
+	@echo ""
+	@echo "===== Running e2e basic tests ====="
+	$(KUBECTL) config use-context kind-$(HUB_CLUSTER)
+	go test -tags=e2e ./test/e2e/ -v -ginkgo.v --ginkgo.label-filter="basic-full"
+	@echo ""
+	@echo "===== E2E Basic Tests Complete ====="
+	@echo "Hub context: kind-$(HUB_CLUSTER)"
+	@echo "Spoke context: kind-$(SPOKE_CLUSTER)"
+
+.PHONY: test-e2e-basic-full
+test-e2e-basic-full: ## Complete e2e test with basic pull model (cluster setup + deployment + tests)
+	$(MAKE) setup-e2e-clusters
+	@echo ""
+	@echo "===== Running basic tests ====="
+	$(MAKE) test-e2e-basic
+
 ##@ Build
 
 .PHONY: build

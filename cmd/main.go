@@ -46,6 +46,7 @@ import (
 
 	appsv1alpha1 "open-cluster-management.io/argocd-pull-integration/api/v1alpha1"
 	"open-cluster-management.io/argocd-pull-integration/internal/addon"
+	basiccontroller "open-cluster-management.io/argocd-pull-integration/internal/basic/application"
 	"open-cluster-management.io/argocd-pull-integration/internal/controller"
 	// +kubebuilder:scaffold:imports
 )
@@ -75,8 +76,12 @@ var (
 )
 
 var (
-	scheme   = runtime.NewScheme()
-	setupLog = ctrl.Log.WithName("setup")
+	scheme               = runtime.NewScheme()
+	setupLog             = ctrl.Log.WithName("setup")
+	metricsAddr          string
+	probeAddr            string
+	enableLeaderElection bool
+	argoCDNamespace      string
 )
 
 func init() {
@@ -94,22 +99,20 @@ func init() {
 // nolint:gocyclo
 func main() {
 	var mode string
-	var metricsAddr string
 	var metricsCertPath, metricsCertName, metricsCertKey string
 	var webhookCertPath, webhookCertName, webhookCertKey string
-	var enableLeaderElection bool
-	var probeAddr string
 	var secureMetrics bool
 	var enableHTTP2 bool
 	var tlsOpts []func(*tls.Config)
 
-	flag.StringVar(&mode, "mode", "controller", "Mode to run: controller, addon, or cleanup")
+	flag.StringVar(&mode, "mode", "controller", "Mode to run: controller, addon, cleanup, or basic")
 	flag.StringVar(&metricsAddr, "metrics-bind-address", "0", "The address the metrics endpoint binds to. "+
 		"Use :8443 for HTTPS or :8080 for HTTP, or leave as 0 to disable the metrics service.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
 	flag.BoolVar(&enableLeaderElection, "leader-elect", false,
 		"Enable leader election for controller manager. "+
 			"Enabling this will ensure there is only one active controller manager.")
+	flag.StringVar(&argoCDNamespace, "argocd-namespace", "argocd", "The namespace where ArgoCD Secrets are created (basic mode only).")
 	flag.BoolVar(&secureMetrics, "metrics-secure", true,
 		"If set, the metrics endpoint is served securely via HTTPS. Use --metrics-secure=false to use HTTP instead.")
 	flag.StringVar(&webhookCertPath, "webhook-cert-path", "", "The directory that contains the webhook certificate.")
@@ -145,6 +148,12 @@ func main() {
 	// Check if running in cleanup mode
 	if mode == "cleanup" {
 		runCleanupMode()
+		return
+	}
+
+	// Check if running in basic mode
+	if mode == "basic" {
+		runBasicMode()
 		return
 	}
 
@@ -383,6 +392,63 @@ func runCleanupMode() {
 	setupLog.Info("starting cleanup manager")
 	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
 		setupLog.Error(err, "problem running cleanup manager")
+		os.Exit(1)
+	}
+}
+
+// runBasicMode runs the application in basic pull model mode
+func runBasicMode() {
+	setupLog.Info("Starting in basic pull model mode")
+
+	// Create a separate scheme for basic mode without GitOpsCluster CRD
+	basicScheme := runtime.NewScheme()
+	utilruntime.Must(clientgoscheme.AddToScheme(basicScheme))
+	utilruntime.Must(clusterv1.AddToScheme(basicScheme))
+	utilruntime.Must(workv1.AddToScheme(basicScheme))
+
+	// Use the already-parsed flags from main()
+	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
+		Scheme: basicScheme,
+		Metrics: metricsserver.Options{
+			BindAddress: metricsAddr,
+		},
+		HealthProbeBindAddress: probeAddr,
+		LeaderElection:         enableLeaderElection,
+		LeaderElectionID:       "ec810684.open-cluster-management.io",
+	})
+	if err != nil {
+		setupLog.Error(err, "unable to start basic manager")
+		os.Exit(1)
+	}
+
+	if err = (&basiccontroller.ApplicationReconciler{
+		Client: mgr.GetClient(),
+		Scheme: mgr.GetScheme(),
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "Application")
+		os.Exit(1)
+	}
+
+	if err = (&basiccontroller.ApplicationStatusReconciler{
+		Client: mgr.GetClient(),
+		Scheme: mgr.GetScheme(),
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create application status controller", "application status controller", "Application")
+		os.Exit(1)
+	}
+
+	if err = (&basiccontroller.ClusterReconciler{
+		Client:          mgr.GetClient(),
+		Scheme:          mgr.GetScheme(),
+		ArgoCDNamespace: argoCDNamespace,
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "ManagedCluster")
+		os.Exit(1)
+	}
+
+	setupLog.Info("starting basic pull model manager with unstructured Application")
+	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
+		setupLog.Error(err, "problem running basic manager")
 		os.Exit(1)
 	}
 }
