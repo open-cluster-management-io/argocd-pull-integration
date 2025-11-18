@@ -10,6 +10,7 @@ env:
   GO_REQUIRED_MIN_VERSION: ''
   GITHUB_REF: ${{ github.ref }}
   CHART_NAME: argocd-agent-addon
+  BASIC_CHART_NAME: argocd-pull-integration
 
 jobs:
   env:
@@ -92,7 +93,7 @@ jobs:
           fetch-depth: 1
       - name: setup helm
         uses: azure/setup-helm@v4
-      - name: prepare chart for release
+      - name: prepare advanced chart for release
         run: |
           # Update Chart.yaml appVersion to match release version (without 'v' prefix)
           RELEASE_VERSION="${{ needs.env.outputs.TRIMMED_RELEASE_VERSION }}"
@@ -106,20 +107,40 @@ jobs:
           sed -i "s/^appVersion:.*/appVersion: ${RELEASE_VERSION}/" internal/addon/charts/${{ env.CHART_NAME }}/Chart.yaml
           sed -i "s/^version:.*/version: ${RELEASE_VERSION}/" internal/addon/charts/${{ env.CHART_NAME }}/Chart.yaml
           
-          echo "Chart prepared for release ${RELEASE_VERSION}"
+          echo "Advanced chart prepared for release ${RELEASE_VERSION}"
           echo "=== Chart.yaml ==="
           cat charts/${{ env.CHART_NAME }}/Chart.yaml
           echo "=== values.yaml (tag section) ==="
           grep -A2 "^image:" charts/${{ env.CHART_NAME }}/values.yaml || true
+      - name: prepare basic chart for release
+        run: |
+          # Update basic chart
+          RELEASE_VERSION="${{ needs.env.outputs.TRIMMED_RELEASE_VERSION }}"
+          sed -i "s/^appVersion:.*/appVersion: ${RELEASE_VERSION}/" charts/${{ env.BASIC_CHART_NAME }}/Chart.yaml
+          sed -i "s/^version:.*/version: ${RELEASE_VERSION}/" charts/${{ env.BASIC_CHART_NAME }}/Chart.yaml
+          
+          # Update tag in values.yaml to match release version
+          sed -i "s/^tag:.*/tag: ${RELEASE_VERSION}/" charts/${{ env.BASIC_CHART_NAME }}/values.yaml
+          
+          echo "Basic chart prepared for release ${RELEASE_VERSION}"
+          echo "=== Chart.yaml ==="
+          cat charts/${{ env.BASIC_CHART_NAME }}/Chart.yaml
+          echo "=== values.yaml (tag section) ==="
+          grep -A2 "^tag:" charts/${{ env.BASIC_CHART_NAME }}/values.yaml || true
       - name: chart package
         run: |
           mkdir -p release
           pushd release
           helm package ../charts/${{ env.CHART_NAME }}/
+          helm package ../charts/${{ env.BASIC_CHART_NAME }}/
           popd
       - name: generate changelog
         run: |
           echo "# Argo CD Pull Integration ${{ needs.env.outputs.RELEASE_VERSION }}" > /home/runner/work/changelog.txt
+          echo "" >> /home/runner/work/changelog.txt
+          echo "This release includes:" >> /home/runner/work/changelog.txt
+          echo "- **Advanced Pull Model Chart**: \`${{ env.CHART_NAME }}-${{ needs.env.outputs.TRIMMED_RELEASE_VERSION }}.tgz\`" >> /home/runner/work/changelog.txt
+          echo "- **Basic Pull Model Chart**: \`${{ env.BASIC_CHART_NAME }}-${{ needs.env.outputs.TRIMMED_RELEASE_VERSION }}.tgz\`" >> /home/runner/work/changelog.txt
       - name: publish release
         uses: softprops/action-gh-release@v2
         env:
