@@ -1,6 +1,6 @@
 apiVersion: v2
-appVersion: 0.26.0
-description: A Helm chart for OCM Argo CD Pull Model Integration
+appVersion: 0.26.1
+description: Argo CD Pull Integration Add-on for Open Cluster Management (Basic Pull Model)
 name: argocd-pull-integration
 type: application
-version: 0.26.0
+version: 0.26.1

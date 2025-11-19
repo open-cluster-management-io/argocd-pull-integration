@@ -195,4 +195,93 @@ var _ = Describe("Application Pull controller", func() {
 			}).Should(BeTrue())
 		})
 	})
+
+	Context("When Application without finalizer is deleted", func() {
+		It("Should delete ManifestWork based on annotations", func() {
+			const (
+				appName3     = "app-3"
+				clusterName2 = "cluster2"
+			)
+			appKey3 := types.NamespacedName{Name: appName3, Namespace: appNamespace}
+
+			By("Creating the OCM ManagedCluster")
+			managedCluster2 := clusterv1.ManagedCluster{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: clusterName2,
+				},
+			}
+			Expect(k8sClient.Create(ctx, &managedCluster2)).Should(Succeed())
+
+			By("Creating the OCM ManagedCluster namespace")
+			managedClusterNs2 := corev1.Namespace{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: clusterName2,
+				},
+			}
+			Expect(k8sClient.Create(ctx, &managedClusterNs2)).Should(Succeed())
+
+			By("Creating the Application without finalizer")
+			app3 := &unstructured.Unstructured{}
+			app3.SetGroupVersionKind(schema.GroupVersionKind{
+				Group:   "argoproj.io",
+				Version: "v1alpha1",
+				Kind:    "Application",
+			})
+			app3.SetName(appName3)
+			app3.SetNamespace(appNamespace)
+			app3.SetLabels(map[string]string{LabelKeyPull: strconv.FormatBool(true)})
+			app3.SetAnnotations(map[string]string{AnnotationKeyOCMManagedCluster: clusterName2})
+			// Note: No finalizer set
+
+			// Set required spec fields
+			_ = unstructured.SetNestedField(app3.Object, "default", "spec", "project")
+			_ = unstructured.SetNestedField(app3.Object, "default", "spec", "source", "repoURL")
+			_ = unstructured.SetNestedMap(app3.Object, map[string]interface{}{"server": KubernetesInternalAPIServerAddr}, "spec", "destination")
+
+			Expect(k8sClient.Create(ctx, app3)).Should(Succeed())
+			app3 = &unstructured.Unstructured{}
+			app3.SetGroupVersionKind(schema.GroupVersionKind{
+				Group:   "argoproj.io",
+				Version: "v1alpha1",
+				Kind:    "Application",
+			})
+			Expect(k8sClient.Get(ctx, appKey3, app3)).Should(Succeed())
+
+			mwKey3 := types.NamespacedName{Name: generateManifestWorkName(app3.GetName(), app3.GetUID()), Namespace: clusterName2}
+			mw3 := workv1.ManifestWork{}
+			Eventually(func() bool {
+				if err := k8sClient.Get(ctx, mwKey3, &mw3); err != nil {
+					return false
+				}
+				return true
+			}).Should(BeTrue())
+
+			By("Verifying ManifestWork has correct annotations")
+			Expect(mw3.GetAnnotations()[AnnotationKeyHubApplicationNamespace]).To(Equal(appNamespace))
+			Expect(mw3.GetAnnotations()[AnnotationKeyHubApplicationName]).To(Equal(appName3))
+
+			By("Deleting the Application without finalizer (immediate deletion)")
+			Expect(k8sClient.Delete(ctx, app3)).Should(Succeed())
+
+			By("Verifying Application is immediately deleted (no finalizer)")
+			Eventually(func() bool {
+				tempApp := &unstructured.Unstructured{}
+				tempApp.SetGroupVersionKind(schema.GroupVersionKind{
+					Group:   "argoproj.io",
+					Version: "v1alpha1",
+					Kind:    "Application",
+				})
+				err := k8sClient.Get(ctx, appKey3, tempApp)
+				return err != nil
+			}).Should(BeTrue())
+
+			By("Verifying ManifestWork is cleaned up despite no finalizer")
+			Eventually(func() bool {
+				if err := k8sClient.Get(ctx, mwKey3, &mw3); err != nil {
+					return true
+				}
+				return false
+			}).Should(BeTrue())
+		})
+	})
 })
