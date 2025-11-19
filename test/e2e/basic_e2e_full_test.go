@@ -310,4 +310,405 @@ spec:
 			fmt.Fprintf(GinkgoWriter, "Application status successfully synced back to hub\n")
 		})
 	})
+
+	Context("Application without finalizer deletion", func() {
+		const (
+			appNoFinalizerName = "test-app-nofinalizer"
+		)
+		var manifestWorkName string
+
+		It("should create Application without finalizer on hub", func() {
+			By("creating test Application without finalizer on hub")
+			appYaml := fmt.Sprintf(`
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: %s
+  namespace: %s
+  labels:
+    apps.open-cluster-management.io/pull-to-ocm-managed-cluster: "true"
+  annotations:
+    apps.open-cluster-management.io/ocm-managed-cluster: %s
+    apps.open-cluster-management.io/ocm-managed-cluster-app-namespace: argocd
+    argocd.argoproj.io/skip-reconcile: "true"
+spec:
+  destination:
+    namespace: %s
+    server: https://kubernetes.default.svc
+  project: default
+  source:
+    path: guestbook
+    repoURL: https://github.com/argoproj/argocd-example-apps.git
+    targetRevision: HEAD
+  syncPolicy:
+    automated:
+      prune: true
+    syncOptions:
+    - CreateNamespace=true
+`, appNoFinalizerName, appNamespace, manifestWorkNs, targetNamespace)
+
+			cmd := exec.Command("kubectl", "--context", hubContext, "apply", "-f", "-")
+			cmd.Stdin = strings.NewReader(appYaml)
+			_, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("verifying Application is created without finalizer")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "--context", hubContext,
+					"get", "application", appNoFinalizerName,
+					"-n", appNamespace,
+					"-o", "jsonpath={.metadata.finalizers}")
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				// Empty or no finalizers expected
+				g.Expect(output).To(Or(BeEmpty(), Equal("[]")))
+			}).Should(Succeed())
+
+			fmt.Fprintf(GinkgoWriter, "Application %s created without finalizer\n", appNoFinalizerName)
+		})
+
+		It("should create ManifestWork for Application without finalizer", func() {
+			By("verifying ManifestWork is created with pattern <appname>-<uid-first-5-chars>")
+			Eventually(func(g Gomega) {
+				// Get the Application UID to construct expected ManifestWork name
+				cmd := exec.Command("kubectl", "--context", hubContext,
+					"get", "application", appNoFinalizerName,
+					"-n", appNamespace,
+					"-o", "jsonpath={.metadata.uid}")
+				uidOutput, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(uidOutput).NotTo(BeEmpty())
+
+				// ManifestWork name is appname + "-" + first 5 chars of UID
+				expectedMWName := appNoFinalizerName + "-" + uidOutput[:5]
+
+				cmd = exec.Command("kubectl", "--context", hubContext,
+					"get", "manifestwork", expectedMWName,
+					"-n", manifestWorkNs)
+				_, err = utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				manifestWorkName = expectedMWName
+			}).Should(Succeed())
+
+			By("verifying ManifestWork has correct annotations for tracking")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "--context", hubContext,
+					"get", "manifestwork", manifestWorkName,
+					"-n", manifestWorkNs,
+					"-o", "jsonpath={.metadata.annotations.apps\\.open-cluster-management\\.io/hub-application-namespace}")
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).To(Equal(appNamespace))
+			}).Should(Succeed())
+
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "--context", hubContext,
+					"get", "manifestwork", manifestWorkName,
+					"-n", manifestWorkNs,
+					"-o", "jsonpath={.metadata.annotations.apps\\.open-cluster-management\\.io/hub-application-name}")
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).To(Equal(appNoFinalizerName))
+			}).Should(Succeed())
+
+			fmt.Fprintf(GinkgoWriter, "ManifestWork %s created successfully with tracking annotations\n", manifestWorkName)
+		})
+
+		It("should pull Application to spoke cluster", func() {
+			By("verifying Application is pulled to spoke cluster")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "--context", cluster1Context,
+					"get", "application", appNoFinalizerName,
+					"-n", appNamespace)
+				_, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+			}).Should(Succeed())
+
+			By("verifying Application sync status on spoke")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "--context", cluster1Context,
+					"get", "application", appNoFinalizerName,
+					"-n", appNamespace,
+					"-o", "jsonpath={.status.sync.status}")
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).To(Equal("Synced"))
+			}).Should(Succeed())
+
+			fmt.Fprintf(GinkgoWriter, "Application %s synced on spoke\n", appNoFinalizerName)
+		})
+
+		It("should delete Application without finalizer from hub", func() {
+			By("deleting Application without finalizer from hub")
+			cmd := exec.Command("kubectl", "--context", hubContext,
+				"delete", "application", appNoFinalizerName,
+				"-n", appNamespace)
+			_, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("verifying Application is immediately deleted (no finalizer)")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "--context", hubContext,
+					"get", "application", appNoFinalizerName,
+					"-n", appNamespace)
+				_, err := utils.Run(cmd)
+				g.Expect(err).To(HaveOccurred())
+			}).Should(Succeed())
+
+			fmt.Fprintf(GinkgoWriter, "Application %s deleted from hub\n", appNoFinalizerName)
+		})
+
+		It("should cleanup ManifestWork even though Application had no finalizer", func() {
+			By("verifying ManifestWork is deleted from hub")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "--context", hubContext,
+					"get", "manifestwork", manifestWorkName,
+					"-n", manifestWorkNs)
+				_, err := utils.Run(cmd)
+				g.Expect(err).To(HaveOccurred())
+			}).Should(Succeed())
+
+			fmt.Fprintf(GinkgoWriter, "ManifestWork %s successfully cleaned up\n", manifestWorkName)
+		})
+
+		It("should remove Application from spoke after ManifestWork deletion", func() {
+			By("verifying Application is removed from spoke cluster")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "--context", cluster1Context,
+					"get", "application", appNoFinalizerName,
+					"-n", appNamespace)
+				_, err := utils.Run(cmd)
+				g.Expect(err).To(HaveOccurred())
+			}).Should(Succeed())
+
+			fmt.Fprintf(GinkgoWriter, "Application %s removed from spoke\n", appNoFinalizerName)
+		})
+	})
+
+	Context("ApplicationSet with preserveResourcesOnDeletion and periodic cleanup", func() {
+		const (
+			appSetPreserveName = "test-appset-preserve"
+		)
+		var (
+			appFromAppSetName   string
+			manifestWorkName    string
+			cleanupIntervalSecs = 310 // Cleanup interval is 5 minutes (300s) + buffer for processing
+		)
+
+		It("should create ApplicationSet with preserveResourcesOnDeletion", func() {
+			By("creating ApplicationSet with preserveResourcesOnDeletion on hub")
+			appSetYaml := fmt.Sprintf(`
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: %s
+  namespace: %s
+spec:
+  syncPolicy:
+    preserveResourcesOnDeletion: true
+  generators:
+  - list:
+      elements:
+      - cluster: cluster1
+        name: cluster1-preserve
+  template:
+    metadata:
+      name: '{{name}}-app'
+      labels:
+        apps.open-cluster-management.io/pull-to-ocm-managed-cluster: "true"
+      annotations:
+        apps.open-cluster-management.io/ocm-managed-cluster: '{{cluster}}'
+        apps.open-cluster-management.io/ocm-managed-cluster-app-namespace: argocd
+        argocd.argoproj.io/skip-reconcile: "true"
+    spec:
+      destination:
+        namespace: %s
+        server: https://kubernetes.default.svc
+      project: default
+      source:
+        path: guestbook
+        repoURL: https://github.com/argoproj/argocd-example-apps.git
+        targetRevision: HEAD
+      syncPolicy:
+        automated:
+          prune: true
+        syncOptions:
+        - CreateNamespace=true
+`, appSetPreserveName, appNamespace, targetNamespace)
+
+			cmd := exec.Command("kubectl", "--context", hubContext, "apply", "-f", "-")
+			cmd.Stdin = strings.NewReader(appSetYaml)
+			_, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("verifying ApplicationSet is created")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "--context", hubContext,
+					"get", "applicationset", appSetPreserveName,
+					"-n", appNamespace)
+				_, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+			}).Should(Succeed())
+
+			fmt.Fprintf(GinkgoWriter, "ApplicationSet %s created with preserveResourcesOnDeletion\n", appSetPreserveName)
+		})
+
+		It("should create Application without finalizer from ApplicationSet", func() {
+			By("waiting for ApplicationSet to create Application")
+			time.Sleep(10 * time.Second)
+
+			appFromAppSetName = "cluster1-preserve-app"
+
+			By("verifying Application is created by ApplicationSet")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "--context", hubContext,
+					"get", "application", appFromAppSetName,
+					"-n", appNamespace)
+				_, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+			}, 2*time.Minute, 5*time.Second).Should(Succeed())
+
+			By("verifying Application has NO finalizer (preserveResourcesOnDeletion)")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "--context", hubContext,
+					"get", "application", appFromAppSetName,
+					"-n", appNamespace,
+					"-o", "jsonpath={.metadata.finalizers}")
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				// Should be empty or [] since preserveResourcesOnDeletion prevents finalizer
+				g.Expect(output).To(Or(BeEmpty(), Equal("[]")))
+			}).Should(Succeed())
+
+			fmt.Fprintf(GinkgoWriter, "Application %s created without finalizer by ApplicationSet\n", appFromAppSetName)
+		})
+
+		It("should create ManifestWork and propagate to spoke", func() {
+			By("verifying ManifestWork is created")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "--context", hubContext,
+					"get", "application", appFromAppSetName,
+					"-n", appNamespace,
+					"-o", "jsonpath={.metadata.uid}")
+				uidOutput, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(uidOutput).NotTo(BeEmpty())
+
+				expectedMWName := appFromAppSetName + "-" + uidOutput[:5]
+
+				cmd = exec.Command("kubectl", "--context", hubContext,
+					"get", "manifestwork", expectedMWName,
+					"-n", manifestWorkNs)
+				_, err = utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				manifestWorkName = expectedMWName
+			}).Should(Succeed())
+
+			By("verifying Application is pulled to spoke cluster")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "--context", cluster1Context,
+					"get", "application", appFromAppSetName,
+					"-n", appNamespace)
+				_, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+			}).Should(Succeed())
+
+			By("verifying Application sync status on spoke")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "--context", cluster1Context,
+					"get", "application", appFromAppSetName,
+					"-n", appNamespace,
+					"-o", "jsonpath={.status.sync.status}")
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).To(Equal("Synced"))
+			}).Should(Succeed())
+
+			fmt.Fprintf(GinkgoWriter, "ManifestWork %s created and Application synced on spoke\n", manifestWorkName)
+		})
+
+		It("should cleanup orphaned ManifestWork via periodic controller after ApplicationSet deletion", func() {
+			By("scaling down the controller to stop reconciliation")
+			cmd := exec.Command("kubectl", "--context", hubContext,
+				"-n", appNamespace,
+				"scale", "deploy", "argocd-pull-integration",
+				"--replicas=0")
+			_, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("waiting for controller pod to be terminated")
+			time.Sleep(5 * time.Second)
+
+			By("deleting the ApplicationSet")
+			cmd = exec.Command("kubectl", "--context", hubContext,
+				"delete", "applicationset", appSetPreserveName,
+				"-n", appNamespace)
+			_, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("verifying Application is deleted from hub (no finalizer)")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "--context", hubContext,
+					"get", "application", appFromAppSetName,
+					"-n", appNamespace)
+				_, err := utils.Run(cmd)
+				g.Expect(err).To(HaveOccurred())
+			}).Should(Succeed())
+
+			By("verifying ManifestWork still exists (controller not running)")
+			cmd = exec.Command("kubectl", "--context", hubContext,
+				"get", "manifestwork", manifestWorkName,
+				"-n", manifestWorkNs)
+			_, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("verifying Application is still on spoke")
+			cmd = exec.Command("kubectl", "--context", cluster1Context,
+				"get", "application", appFromAppSetName,
+				"-n", appNamespace)
+			_, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			fmt.Fprintf(GinkgoWriter, "ManifestWork %s is orphaned with controller stopped\n", manifestWorkName)
+
+			By("scaling up the controller to resume reconciliation")
+			cmd = exec.Command("kubectl", "--context", hubContext,
+				"-n", appNamespace,
+				"scale", "deploy", "argocd-pull-integration",
+				"--replicas=1")
+			_, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("waiting for controller pod to be ready")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "--context", hubContext,
+					"-n", appNamespace,
+					"get", "deploy", "argocd-pull-integration",
+					"-o", "jsonpath={.status.readyReplicas}")
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).To(Equal("1"))
+			}, 30*time.Second, 2*time.Second).Should(Succeed())
+
+			By(fmt.Sprintf("waiting for periodic cleanup controller to delete orphaned ManifestWork (max %d seconds)", cleanupIntervalSecs+10))
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "--context", hubContext,
+					"get", "manifestwork", manifestWorkName,
+					"-n", manifestWorkNs)
+				_, err := utils.Run(cmd)
+				g.Expect(err).To(HaveOccurred())
+			}, time.Duration(cleanupIntervalSecs+10)*time.Second, 5*time.Second).Should(Succeed())
+
+			By("verifying Application is removed from spoke after ManifestWork deletion")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "--context", cluster1Context,
+					"get", "application", appFromAppSetName,
+					"-n", appNamespace)
+				_, err := utils.Run(cmd)
+				g.Expect(err).To(HaveOccurred())
+			}, 30*time.Second, 2*time.Second).Should(Succeed())
+
+			fmt.Fprintf(GinkgoWriter, "Periodic cleanup controller successfully deleted orphaned ManifestWork %s\n", manifestWorkName)
+		})
+	})
 })

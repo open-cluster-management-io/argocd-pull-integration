@@ -98,6 +98,51 @@ func (r *ApplicationReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Complete(r)
 }
 
+// cleanupManifestWorksForDeletedApplication finds and deletes ManifestWorks associated with a deleted Application
+// This handles the case where an Application is deleted without a finalizer
+func (r *ApplicationReconciler) cleanupManifestWorksForDeletedApplication(ctx context.Context, appKey types.NamespacedName) (ctrl.Result, error) {
+	log := log.FromContext(ctx)
+
+	// List all ManifestWorks that have annotations matching this Application
+	var manifestWorkList workv1.ManifestWorkList
+	if err := r.List(ctx, &manifestWorkList, client.MatchingLabels{
+		LabelKeyPull: "true",
+	}); err != nil {
+		log.Error(err, "unable to list ManifestWorks")
+		return ctrl.Result{}, err
+	}
+
+	// Find ManifestWorks that belong to this Application
+	var worksToDelete []workv1.ManifestWork
+	for _, work := range manifestWorkList.Items {
+		if containsValidManifestWorkHubApplicationAnnotations(work) {
+			annos := work.GetAnnotations()
+			if annos[AnnotationKeyHubApplicationNamespace] == appKey.Namespace &&
+				annos[AnnotationKeyHubApplicationName] == appKey.Name {
+				worksToDelete = append(worksToDelete, work)
+			}
+		}
+	}
+
+	// Delete each ManifestWork found
+	if len(worksToDelete) == 0 {
+		log.Info("no orphaned ManifestWorks found for deleted Application")
+		return ctrl.Result{}, nil
+	}
+
+	log.Info("found orphaned ManifestWorks for deleted Application", "count", len(worksToDelete))
+	for _, work := range worksToDelete {
+		log.Info("deleting orphaned ManifestWork", "name", work.Name, "namespace", work.Namespace)
+		if err := r.Delete(ctx, &work); err != nil && !errors.IsNotFound(err) {
+			log.Error(err, "unable to delete ManifestWork", "name", work.Name, "namespace", work.Namespace)
+			return ctrl.Result{}, err
+		}
+	}
+
+	log.Info("successfully cleaned up orphaned ManifestWorks for deleted Application")
+	return ctrl.Result{}, nil
+}
+
 // Reconcile create/update/delete ManifestWork with the Application as its payload
 func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := log.FromContext(ctx)
@@ -110,8 +155,14 @@ func (r *ApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		Kind:    "Application",
 	})
 	if err := r.Get(ctx, req.NamespacedName, application); err != nil {
+		if errors.IsNotFound(err) {
+			// Application is already deleted (likely without finalizer)
+			// We need to find and delete any associated ManifestWork
+			log.Info("Application not found, checking for orphaned ManifestWorks to clean up")
+			return r.cleanupManifestWorksForDeletedApplication(ctx, req.NamespacedName)
+		}
 		log.Error(err, "unable to fetch Application")
-		return ctrl.Result{}, client.IgnoreNotFound(err)
+		return ctrl.Result{}, err
 	}
 
 	managedClusterName := application.GetAnnotations()[AnnotationKeyOCMManagedCluster]

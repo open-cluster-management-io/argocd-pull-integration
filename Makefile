@@ -266,6 +266,7 @@ test-e2e-basic: manifests generate fmt vet ## Run e2e tests for basic pull model
 	$(KUBECTL) config use-context kind-$(HUB_CLUSTER)
 	$(KUBECTL) create namespace argocd --dry-run=client -o yaml | $(KUBECTL) apply -f -
 	$(KUBECTL) apply -n argocd --force -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+	sleep 30
 	$(KUBECTL) -n argocd scale deployment/argocd-dex-server --replicas 0
 	$(KUBECTL) -n argocd scale deployment/argocd-repo-server --replicas 0
 	$(KUBECTL) -n argocd scale deployment/argocd-server --replicas 0

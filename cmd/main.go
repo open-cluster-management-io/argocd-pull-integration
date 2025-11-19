@@ -76,12 +76,13 @@ var (
 )
 
 var (
-	scheme               = runtime.NewScheme()
-	setupLog             = ctrl.Log.WithName("setup")
-	metricsAddr          string
-	probeAddr            string
-	enableLeaderElection bool
-	argoCDNamespace      string
+	scheme                         = runtime.NewScheme()
+	setupLog                       = ctrl.Log.WithName("setup")
+	metricsAddr                    string
+	probeAddr                      string
+	enableLeaderElection           bool
+	argoCDNamespace                string
+	manifestWorkCleanupIntervalMin int
 )
 
 func init() {
@@ -113,6 +114,7 @@ func main() {
 		"Enable leader election for controller manager. "+
 			"Enabling this will ensure there is only one active controller manager.")
 	flag.StringVar(&argoCDNamespace, "argocd-namespace", "argocd", "The namespace where ArgoCD Secrets are created (basic mode only).")
+	flag.IntVar(&manifestWorkCleanupIntervalMin, "manifestwork-cleanup-interval", 5, "The interval in minutes for cleaning up orphaned ManifestWorks (basic mode only).")
 	flag.BoolVar(&secureMetrics, "metrics-secure", true,
 		"If set, the metrics endpoint is served securely via HTTPS. Use --metrics-secure=false to use HTTP instead.")
 	flag.StringVar(&webhookCertPath, "webhook-cert-path", "", "The directory that contains the webhook certificate.")
@@ -445,6 +447,19 @@ func runBasicMode() {
 		setupLog.Error(err, "unable to create controller", "controller", "ManagedCluster")
 		os.Exit(1)
 	}
+
+	// Start the ManifestWork cleanup controller
+	cleanupInterval := time.Duration(manifestWorkCleanupIntervalMin) * time.Minute
+	cleanupController := &basiccontroller.ManifestWorkCleanupReconciler{
+		Client:   mgr.GetClient(),
+		Scheme:   mgr.GetScheme(),
+		Interval: cleanupInterval,
+	}
+	if err := mgr.Add(cleanupController); err != nil {
+		setupLog.Error(err, "unable to add ManifestWork cleanup controller")
+		os.Exit(1)
+	}
+	setupLog.Info("ManifestWork cleanup controller added", "interval", cleanupInterval.String())
 
 	setupLog.Info("starting basic pull model manager with unstructured Application")
 	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
