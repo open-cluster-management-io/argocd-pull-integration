@@ -66,6 +66,8 @@ test: manifests generate fmt vet setup-envtest ## Run tests.
 HUB_CLUSTER ?= hub
 SPOKE_CLUSTER ?= cluster1
 E2E_IMG ?= quay.io/open-cluster-management/argocd-pull-integration:latest
+# clusteradm version (see: https://github.com/open-cluster-management-io/clusteradm/releases)
+CLUSTERADM_VERSION ?= v1.1.1
 
 ##@ E2E Tests
 
@@ -91,7 +93,7 @@ test-e2e: manifests generate fmt vet ## Run e2e deployment tests only (checks po
 	./test/e2e/scripts/install_metallb.sh
 	@echo ""
 	@echo "===== Setting up OCM environment ====="
-	./test/e2e/scripts/setup_ocm_env.sh
+	CLUSTERADM_VERSION=$(CLUSTERADM_VERSION) ./test/e2e/scripts/setup_ocm_env.sh
 	@echo ""
 	@echo "===== Installing addon via Helm ====="
 	$(KUBECTL) config use-context kind-$(HUB_CLUSTER)
@@ -169,7 +171,7 @@ test-e2e-cleanup: manifests generate fmt vet ## Run e2e cleanup tests (checks ad
 	./test/e2e/scripts/install_metallb.sh
 	@echo ""
 	@echo "===== Setting up OCM environment ====="
-	./test/e2e/scripts/setup_ocm_env.sh
+	CLUSTERADM_VERSION=$(CLUSTERADM_VERSION) ./test/e2e/scripts/setup_ocm_env.sh
 	@echo ""
 	@echo "===== Installing addon via Helm ====="
 	$(KUBECTL) config use-context kind-$(HUB_CLUSTER)
@@ -195,7 +197,7 @@ test-e2e-cleanup-full: ## Complete e2e test with cleanup verification including 
 	./test/e2e/scripts/install_metallb.sh
 	@echo ""
 	@echo "===== Setting up OCM environment ====="
-	./test/e2e/scripts/setup_ocm_env.sh
+	CLUSTERADM_VERSION=$(CLUSTERADM_VERSION) ./test/e2e/scripts/setup_ocm_env.sh
 	@echo ""
 	@echo "===== Installing addon via Helm ====="
 	$(KUBECTL) config use-context kind-$(HUB_CLUSTER)
@@ -221,7 +223,7 @@ test-e2e-custom-namespace: manifests generate fmt vet ## Run e2e test with custo
 	./test/e2e/scripts/install_metallb.sh
 	@echo ""
 	@echo "===== Setting up OCM environment ====="
-	./test/e2e/scripts/setup_ocm_env.sh
+	CLUSTERADM_VERSION=$(CLUSTERADM_VERSION) ./test/e2e/scripts/setup_ocm_env.sh
 	@echo ""
 	@echo "===== Installing addon via Helm with custom namespaces ====="
 	$(KUBECTL) config use-context kind-$(HUB_CLUSTER)
@@ -260,7 +262,7 @@ test-e2e-custom-namespace-full: ## Complete e2e test with custom namespaces (clu
 .PHONY: test-e2e-basic
 test-e2e-basic: manifests generate fmt vet ## Run e2e tests for basic pull model (assumes clusters exist and images loaded)
 	@echo "===== Setting up OCM environment ====="
-	./test/e2e/scripts/setup_ocm_env.sh
+	CLUSTERADM_VERSION=$(CLUSTERADM_VERSION) ./test/e2e/scripts/setup_ocm_env.sh
 	@echo ""
 	@echo "===== Installing ArgoCD on hub cluster (optimized) ====="
 	$(KUBECTL) config use-context kind-$(HUB_CLUSTER)
