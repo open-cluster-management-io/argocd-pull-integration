@@ -1,6 +1,6 @@
 apiVersion: v2
-appVersion: 0.26.1
+appVersion: 0.27.0
 description: Argo CD Agent Add-on for Open Cluster Management (Advanced Pull Model)
 name: argocd-agent-addon
 type: application
-version: 0.26.1
+version: 0.27.0
