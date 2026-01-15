@@ -4,7 +4,7 @@ go 1.25.5
 
 require (
 	github.com/onsi/ginkgo/v2 v2.27.5
-	github.com/onsi/gomega v1.38.3
+	github.com/onsi/gomega v1.39.0
 	github.com/openshift/library-go v0.0.0-20251222131241-289839b3ffe8
 	helm.sh/helm/v3 v3.19.4
 	k8s.io/api v0.35.0
