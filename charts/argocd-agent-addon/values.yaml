@@ -8,12 +8,12 @@ replicas: 1
 # ArgoCD operator image
 # This operator manages ArgoCD instances on the hub cluster
 argoCDOperatorImage: quay.io/argoprojlabs/argocd-operator
-argoCDOperatorTag: latest
+argoCDOperatorTag: v0.17.0
 
 # ArgoCD agent image
 # This is the argocd-agent that runs in principal server mode on the hub
 argoCDAgentImage: quay.io/argoprojlabs/argocd-agent
-argoCDAgentTag: v0.5.0
+argoCDAgentTag: v0.5.3
 
 # Hub ArgoCD settings
 global:
