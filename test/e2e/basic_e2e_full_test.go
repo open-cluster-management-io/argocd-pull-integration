@@ -485,6 +485,291 @@ spec:
 		})
 	})
 
+	Context("Application with custom destination annotations", func() {
+		const (
+			appCustomDestName = "test-app-custom-dest"
+		)
+		var manifestWorkName string
+
+		It("should create Application with custom destination-name annotation", func() {
+			By("creating test Application with custom destination-name annotation on hub")
+			appYaml := fmt.Sprintf(`
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: %s
+  namespace: %s
+  labels:
+    apps.open-cluster-management.io/pull-to-ocm-managed-cluster: "true"
+  annotations:
+    apps.open-cluster-management.io/ocm-managed-cluster: %s
+    apps.open-cluster-management.io/ocm-managed-cluster-app-namespace: argocd
+    apps.open-cluster-management.io/destination-name: in-cluster
+    argocd.argoproj.io/skip-reconcile: "true"
+  finalizers:
+  - resources-finalizer.argocd.argoproj.io
+spec:
+  destination:
+    namespace: %s
+    server: https://some-external-server:6443
+  project: default
+  source:
+    path: guestbook
+    repoURL: https://github.com/argoproj/argocd-example-apps.git
+    targetRevision: HEAD
+  syncPolicy:
+    automated:
+      prune: true
+    syncOptions:
+    - CreateNamespace=true
+`, appCustomDestName, appNamespace, manifestWorkNs, targetNamespace)
+
+			cmd := exec.Command("kubectl", "--context", hubContext, "apply", "-f", "-")
+			cmd.Stdin = strings.NewReader(appYaml)
+			_, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("verifying Application is created on hub")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "--context", hubContext,
+					"get", "application", appCustomDestName,
+					"-n", appNamespace)
+				_, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+			}).Should(Succeed())
+
+			fmt.Fprintf(GinkgoWriter, "Application %s created with custom destination-name annotation\n", appCustomDestName)
+		})
+
+		It("should create ManifestWork with custom destination-name in payload", func() {
+			By("verifying ManifestWork is created with pattern <appname>-<uid-first-5-chars>")
+			Eventually(func(g Gomega) {
+				// Get the Application UID to construct expected ManifestWork name
+				cmd := exec.Command("kubectl", "--context", hubContext,
+					"get", "application", appCustomDestName,
+					"-n", appNamespace,
+					"-o", "jsonpath={.metadata.uid}")
+				uidOutput, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(uidOutput).NotTo(BeEmpty())
+
+				// ManifestWork name is appname + "-" + first 5 chars of UID
+				expectedMWName := appCustomDestName + "-" + uidOutput[:5]
+
+				cmd = exec.Command("kubectl", "--context", hubContext,
+					"get", "manifestwork", expectedMWName,
+					"-n", manifestWorkNs)
+				_, err = utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				manifestWorkName = expectedMWName
+			}).Should(Succeed())
+
+			By("verifying ManifestWork payload has custom destination.name set to 'in-cluster'")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "--context", hubContext,
+					"get", "manifestwork", manifestWorkName,
+					"-n", manifestWorkNs,
+					"-o", "jsonpath={.spec.workload.manifests[0].spec.destination.name}")
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).To(Equal("in-cluster"))
+			}).Should(Succeed())
+
+			By("verifying ManifestWork payload has empty destination.server (since only name was specified)")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "--context", hubContext,
+					"get", "manifestwork", manifestWorkName,
+					"-n", manifestWorkNs,
+					"-o", "jsonpath={.spec.workload.manifests[0].spec.destination.server}")
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).To(BeEmpty())
+			}).Should(Succeed())
+
+			By("verifying destination annotations are NOT copied to the payload")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "--context", hubContext,
+					"get", "manifestwork", manifestWorkName,
+					"-n", manifestWorkNs,
+					"-o", "jsonpath={.spec.workload.manifests[0].metadata.annotations.apps\\.open-cluster-management\\.io/destination-name}")
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).To(BeEmpty())
+			}).Should(Succeed())
+
+			fmt.Fprintf(GinkgoWriter, "ManifestWork %s has custom destination-name 'in-cluster' in payload\n", manifestWorkName)
+		})
+
+		It("should cleanup custom destination Application", func() {
+			By("deleting Application with custom destination annotation")
+			cmd := exec.Command("kubectl", "--context", hubContext,
+				"delete", "application", appCustomDestName,
+				"-n", appNamespace,
+				"--timeout=60s")
+			_, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("verifying ManifestWork is deleted")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "--context", hubContext,
+					"get", "manifestwork", manifestWorkName,
+					"-n", manifestWorkNs)
+				_, err := utils.Run(cmd)
+				g.Expect(err).To(HaveOccurred())
+			}).Should(Succeed())
+
+			fmt.Fprintf(GinkgoWriter, "Application %s and ManifestWork %s cleaned up\n", appCustomDestName, manifestWorkName)
+		})
+	})
+
+	Context("Application with custom destination-server annotation", func() {
+		const (
+			appCustomServerName = "test-app-custom-server"
+		)
+		var manifestWorkName string
+
+		It("should create Application with custom destination-server annotation", func() {
+			By("creating test Application with custom destination-server annotation on hub")
+			appYaml := fmt.Sprintf(`
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: %s
+  namespace: %s
+  labels:
+    apps.open-cluster-management.io/pull-to-ocm-managed-cluster: "true"
+  annotations:
+    apps.open-cluster-management.io/ocm-managed-cluster: %s
+    apps.open-cluster-management.io/ocm-managed-cluster-app-namespace: argocd
+    apps.open-cluster-management.io/destination-server: https://kubernetes.default.svc
+    argocd.argoproj.io/skip-reconcile: "true"
+  finalizers:
+  - resources-finalizer.argocd.argoproj.io
+spec:
+  destination:
+    namespace: %s
+    name: some-external-cluster
+  project: default
+  source:
+    path: guestbook
+    repoURL: https://github.com/argoproj/argocd-example-apps.git
+    targetRevision: HEAD
+  syncPolicy:
+    automated:
+      prune: true
+    syncOptions:
+    - CreateNamespace=true
+`, appCustomServerName, appNamespace, manifestWorkNs, targetNamespace)
+
+			cmd := exec.Command("kubectl", "--context", hubContext, "apply", "-f", "-")
+			cmd.Stdin = strings.NewReader(appYaml)
+			_, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("verifying Application is created on hub")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "--context", hubContext,
+					"get", "application", appCustomServerName,
+					"-n", appNamespace)
+				_, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+			}).Should(Succeed())
+
+			fmt.Fprintf(GinkgoWriter, "Application %s created with custom destination-server annotation\n", appCustomServerName)
+		})
+
+		It("should create ManifestWork with custom destination-server in payload", func() {
+			By("verifying ManifestWork is created")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "--context", hubContext,
+					"get", "application", appCustomServerName,
+					"-n", appNamespace,
+					"-o", "jsonpath={.metadata.uid}")
+				uidOutput, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(uidOutput).NotTo(BeEmpty())
+
+				expectedMWName := appCustomServerName + "-" + uidOutput[:5]
+
+				cmd = exec.Command("kubectl", "--context", hubContext,
+					"get", "manifestwork", expectedMWName,
+					"-n", manifestWorkNs)
+				_, err = utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				manifestWorkName = expectedMWName
+			}).Should(Succeed())
+
+			By("verifying ManifestWork payload has custom destination.server")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "--context", hubContext,
+					"get", "manifestwork", manifestWorkName,
+					"-n", manifestWorkNs,
+					"-o", "jsonpath={.spec.workload.manifests[0].spec.destination.server}")
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).To(Equal("https://kubernetes.default.svc"))
+			}).Should(Succeed())
+
+			By("verifying ManifestWork payload has empty destination.name (since only server was specified)")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "--context", hubContext,
+					"get", "manifestwork", manifestWorkName,
+					"-n", manifestWorkNs,
+					"-o", "jsonpath={.spec.workload.manifests[0].spec.destination.name}")
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).To(BeEmpty())
+			}).Should(Succeed())
+
+			fmt.Fprintf(GinkgoWriter, "ManifestWork %s has custom destination-server in payload\n", manifestWorkName)
+		})
+
+		It("should pull Application to spoke and sync successfully", func() {
+			By("verifying Application is pulled to spoke cluster")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "--context", cluster1Context,
+					"get", "application", appCustomServerName,
+					"-n", appNamespace)
+				_, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+			}).Should(Succeed())
+
+			By("verifying Application sync status on spoke")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "--context", cluster1Context,
+					"get", "application", appCustomServerName,
+					"-n", appNamespace,
+					"-o", "jsonpath={.status.sync.status}")
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).To(Equal("Synced"))
+			}).Should(Succeed())
+
+			fmt.Fprintf(GinkgoWriter, "Application %s synced on spoke with custom destination-server\n", appCustomServerName)
+		})
+
+		It("should cleanup custom destination-server Application", func() {
+			By("deleting Application with custom destination-server annotation")
+			cmd := exec.Command("kubectl", "--context", hubContext,
+				"delete", "application", appCustomServerName,
+				"-n", appNamespace,
+				"--timeout=60s")
+			_, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("verifying ManifestWork is deleted")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "--context", hubContext,
+					"get", "manifestwork", manifestWorkName,
+					"-n", manifestWorkNs)
+				_, err := utils.Run(cmd)
+				g.Expect(err).To(HaveOccurred())
+			}).Should(Succeed())
+
+			fmt.Fprintf(GinkgoWriter, "Application %s cleaned up\n", appCustomServerName)
+		})
+	})
+
 	Context("ApplicationSet with preserveResourcesOnDeletion and periodic cleanup", func() {
 		const (
 			appSetPreserveName = "test-appset-preserve"
