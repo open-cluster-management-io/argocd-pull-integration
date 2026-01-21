@@ -13,14 +13,14 @@ func TestGetFullImageReference(t *testing.T) {
 		{
 			name:     "standard image with tag",
 			image:    "quay.io/argoprojlabs/argocd-operator",
-			tag:      "latest",
-			expected: "quay.io/argoprojlabs/argocd-operator:latest",
+			tag:      "v0.17.0",
+			expected: "quay.io/argoprojlabs/argocd-operator:v0.17.0",
 		},
 		{
 			name:     "image with version tag",
 			image:    "quay.io/argoprojlabs/argocd-agent",
-			tag:      "v0.5.0",
-			expected: "quay.io/argoprojlabs/argocd-agent:v0.5.0",
+			tag:      "v0.5.3",
+			expected: "quay.io/argoprojlabs/argocd-agent:v0.5.3",
 		},
 		{
 			name:     "empty image and tag",

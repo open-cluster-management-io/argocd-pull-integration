@@ -5,12 +5,12 @@ const (
 	// DefaultOperatorImage is the default ArgoCD operator image
 	// Used when not specified in GitOpsCluster spec
 	DefaultOperatorImage = "quay.io/argoprojlabs/argocd-operator"
-	DefaultOperatorTag   = "latest"
+	DefaultOperatorTag   = "v0.17.0"
 
 	// DefaultAgentImage is the default ArgoCD agent image
 	// Used when not specified in GitOpsCluster spec
 	DefaultAgentImage = "quay.io/argoprojlabs/argocd-agent"
-	DefaultAgentTag   = "v0.5.0"
+	DefaultAgentTag   = "v0.5.3"
 )
 
 // GetFullImageReference returns the full image reference with tag
