@@ -330,6 +330,46 @@ func Test_prepareApplicationForWorkPayload(t *testing.T) {
 		},
 	}
 
+	// Create an application with custom destination-name annotation
+	appWithDestName := &unstructured.Unstructured{}
+	appWithDestName.SetGroupVersionKind(schema.GroupVersionKind{
+		Group:   "argoproj.io",
+		Version: "v1alpha1",
+		Kind:    "Application",
+	})
+	appWithDestName.SetName("app2")
+	appWithDestName.SetNamespace("argocd")
+	appWithDestName.SetFinalizers([]string{"app2-final"})
+	appWithDestName.SetAnnotations(map[string]string{
+		AnnotationKeyDestinationName: "in-cluster",
+	})
+	appWithDestName.Object["spec"] = map[string]interface{}{
+		"destination": map[string]interface{}{
+			"name":   "originalName",
+			"server": "originalServer",
+		},
+	}
+
+	// Create an application with custom destination-server annotation
+	appWithDestServer := &unstructured.Unstructured{}
+	appWithDestServer.SetGroupVersionKind(schema.GroupVersionKind{
+		Group:   "argoproj.io",
+		Version: "v1alpha1",
+		Kind:    "Application",
+	})
+	appWithDestServer.SetName("app3")
+	appWithDestServer.SetNamespace("argocd")
+	appWithDestServer.SetFinalizers([]string{"app3-final"})
+	appWithDestServer.SetAnnotations(map[string]string{
+		AnnotationKeyDestinationServer: "https://custom-server:6443",
+	})
+	appWithDestServer.Object["spec"] = map[string]interface{}{
+		"destination": map[string]interface{}{
+			"name":   "originalName",
+			"server": "originalServer",
+		},
+	}
+
 	type args struct {
 		application *unstructured.Unstructured
 	}
@@ -339,7 +379,7 @@ func Test_prepareApplicationForWorkPayload(t *testing.T) {
 		want *unstructured.Unstructured
 	}{
 		{
-			name: "modified app",
+			name: "default behavior - no custom destination annotations",
 			args: args{application: app},
 			want: func() *unstructured.Unstructured {
 				expectedApp := &unstructured.Unstructured{}
@@ -379,6 +419,54 @@ func Test_prepareApplicationForWorkPayload(t *testing.T) {
 						"syncOptions": []interface{}{
 							"CreateNamespace=true",
 						},
+					},
+				}
+				return expectedApp
+			}(),
+		},
+		{
+			name: "custom destination-name annotation",
+			args: args{application: appWithDestName},
+			want: func() *unstructured.Unstructured {
+				expectedApp := &unstructured.Unstructured{}
+				expectedApp.SetGroupVersionKind(schema.GroupVersionKind{
+					Group:   "argoproj.io",
+					Version: "v1alpha1",
+					Kind:    "Application",
+				})
+				expectedApp.SetName("app2")
+				expectedApp.SetNamespace("argocd")
+				expectedApp.SetFinalizers([]string{"app2-final"})
+				expectedApp.SetLabels(map[string]string{})
+				expectedApp.SetAnnotations(map[string]string{})
+				expectedApp.Object["spec"] = map[string]interface{}{
+					"destination": map[string]interface{}{
+						"name":   "in-cluster",
+						"server": "",
+					},
+				}
+				return expectedApp
+			}(),
+		},
+		{
+			name: "custom destination-server annotation",
+			args: args{application: appWithDestServer},
+			want: func() *unstructured.Unstructured {
+				expectedApp := &unstructured.Unstructured{}
+				expectedApp.SetGroupVersionKind(schema.GroupVersionKind{
+					Group:   "argoproj.io",
+					Version: "v1alpha1",
+					Kind:    "Application",
+				})
+				expectedApp.SetName("app3")
+				expectedApp.SetNamespace("argocd")
+				expectedApp.SetFinalizers([]string{"app3-final"})
+				expectedApp.SetLabels(map[string]string{})
+				expectedApp.SetAnnotations(map[string]string{})
+				expectedApp.Object["spec"] = map[string]interface{}{
+					"destination": map[string]interface{}{
+						"name":   "",
+						"server": "https://custom-server:6443",
 					},
 				}
 				return expectedApp

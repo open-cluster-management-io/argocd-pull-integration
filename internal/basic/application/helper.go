@@ -109,7 +109,7 @@ func getAppSetOwnerName(ownerRefs []metav1.OwnerReference) string {
 // prepareApplicationForWorkPayload modifies the Application:
 // - reset the meta
 // - set the namespace value
-// - ensures the Application Destination is set to in-cluster resource deployment
+// - ensures the Application Destination is set based on annotations or defaults to server KubernetesInternalAPIServerAddr
 // - ensures the operation field is also set if present
 func prepareApplicationForWorkPayload(application *unstructured.Unstructured) unstructured.Unstructured {
 	newApp := &unstructured.Unstructured{}
@@ -130,10 +130,27 @@ func prepareApplicationForWorkPayload(application *unstructured.Unstructured) un
 	// set the spec field
 	if newSpec, ok := application.Object["spec"].(map[string]interface{}); ok {
 		if destination, ok := newSpec["destination"].(map[string]interface{}); ok {
-			// empty the name
-			destination["name"] = ""
-			// always set for in-cluster destination
-			destination["server"] = KubernetesInternalAPIServerAddr
+			annos := application.GetAnnotations()
+			customName, hasCustomName := annos[AnnotationKeyDestinationName]
+			customServer, hasCustomServer := annos[AnnotationKeyDestinationServer]
+
+			if hasCustomName || hasCustomServer {
+				// custom annotations present - only set the fields that have annotations
+				if hasCustomName {
+					destination["name"] = customName
+				} else {
+					destination["name"] = ""
+				}
+				if hasCustomServer {
+					destination["server"] = customServer
+				} else {
+					destination["server"] = ""
+				}
+			} else {
+				// default behavior
+				destination["name"] = ""
+				destination["server"] = KubernetesInternalAPIServerAddr
+			}
 		}
 		newApp.Object["spec"] = newSpec
 	}
@@ -152,7 +169,9 @@ func prepareApplicationForWorkPayload(application *unstructured.Unstructured) un
 	for key, value := range application.GetAnnotations() {
 		if key != AnnotationKeyOCMManagedCluster &&
 			key != AnnotationKeyOCMManagedClusterAppNamespace &&
-			key != AnnotationKeyAppSkipReconcile {
+			key != AnnotationKeyAppSkipReconcile &&
+			key != AnnotationKeyDestinationName &&
+			key != AnnotationKeyDestinationServer {
 			annotations[key] = value
 		}
 	}

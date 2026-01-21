@@ -39,6 +39,10 @@ const (
 	AnnotationKeyOCMManagedCluster = "apps.open-cluster-management.io/ocm-managed-cluster"
 	// Application annotation that dictates which managed cluster namespace this Application should be pulled to
 	AnnotationKeyOCMManagedClusterAppNamespace = "apps.open-cluster-management.io/ocm-managed-cluster-app-namespace"
+	// Application annotation that allows specifying a custom destination name (ie, in-cluster)
+	AnnotationKeyDestinationName = "apps.open-cluster-management.io/destination-name"
+	// Application annotation that allows specifying a custom destination server URL (ie, https://kubernetes.default.svc)
+	AnnotationKeyDestinationServer = "apps.open-cluster-management.io/destination-server"
 	// Application and ManifestWork annotation that shows which ApplicationSet is the grand parent of this work
 	AnnotationKeyAppSet = "apps.open-cluster-management.io/hosting-applicationset"
 	// Application annotation that enables the skip reconcilation of an application
