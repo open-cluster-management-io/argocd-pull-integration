@@ -14,7 +14,7 @@ require (
 	k8s.io/klog/v2 v2.130.1
 	open-cluster-management.io/api v1.2.0
 	open-cluster-management.io/sdk-go v1.2.0
-	sigs.k8s.io/controller-runtime v0.23.2
+	sigs.k8s.io/controller-runtime v0.23.3
 	sigs.k8s.io/yaml v1.6.0
 )
 
