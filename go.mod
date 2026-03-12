@@ -6,7 +6,7 @@ require (
 	github.com/onsi/ginkgo/v2 v2.28.1
 	github.com/onsi/gomega v1.39.1
 	github.com/openshift/library-go v0.0.0-20251222131241-289839b3ffe8
-	helm.sh/helm/v3 v3.20.0
+	helm.sh/helm/v3 v3.20.1
 	k8s.io/api v0.35.2
 	k8s.io/apiextensions-apiserver v0.35.2
 	k8s.io/apimachinery v0.35.2
