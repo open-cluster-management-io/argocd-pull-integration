@@ -51,6 +51,10 @@ import (
 	// +kubebuilder:scaffold:imports
 )
 
+// Set at build time via ldflags from Makefile's ARGOCD_OPERATOR_IMAGE.
+// This is the single source of truth for the ArgoCD operator version.
+var operatorImage = "quay.io/argoprojlabs/argocd-operator:latest"
+
 // AddonOptions for addon mode command line flag parsing
 type AddonOptions struct {
 	SyncInterval                int
@@ -67,9 +71,6 @@ var (
 		LeaderElectionRetryPeriod:   2 * time.Second,
 	}
 
-	// Default values for ArgoCD Agent and Operator
-	ArgoCDOperatorImage      = ""
-	ArgoCDAgentImage         = ""
 	ArgoCDAgentServerAddress = ""
 	ArgoCDAgentServerPort    = ""
 	ArgoCDAgentMode          = "managed"
@@ -193,10 +194,6 @@ func main() {
 
 	webhookServer := webhook.NewServer(webhookServerOptions)
 
-	// Metrics endpoint is enabled in 'config/default/kustomization.yaml'. The Metrics options configure the server.
-	// More info:
-	// - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.22.1/pkg/metrics/server
-	// - https://book.kubebuilder.io/reference/metrics.html
 	metricsServerOptions := metricsserver.Options{
 		BindAddress:   metricsAddr,
 		SecureServing: secureMetrics,
@@ -204,21 +201,9 @@ func main() {
 	}
 
 	if secureMetrics {
-		// FilterProvider is used to protect the metrics endpoint with authn/authz.
-		// These configurations ensure that only authorized users and service accounts
-		// can access the metrics endpoint. The RBAC are configured in 'config/rbac/kustomization.yaml'. More info:
-		// https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.22.1/pkg/metrics/filters#WithAuthenticationAndAuthorization
 		metricsServerOptions.FilterProvider = filters.WithAuthenticationAndAuthorization
 	}
 
-	// If the certificate is not specified, controller-runtime will automatically
-	// generate self-signed certificates for the metrics server. While convenient for development and testing,
-	// this setup is not recommended for production.
-	//
-	// TODO(user): If you enable certManager, uncomment the following lines:
-	// - [METRICS-WITH-CERTS] at config/default/kustomization.yaml to generate and use certificates
-	// managed by cert-manager for the metrics server.
-	// - [PROMETHEUS-WITH-CERTS] at config/prometheus/kustomization.yaml for TLS certification.
 	if len(metricsCertPath) > 0 {
 		setupLog.Info("Initializing metrics certificate watcher using provided certificates",
 			"metrics-cert-path", metricsCertPath, "metrics-cert-name", metricsCertName, "metrics-cert-key", metricsCertKey)
@@ -235,17 +220,6 @@ func main() {
 		HealthProbeBindAddress: probeAddr,
 		LeaderElection:         enableLeaderElection,
 		LeaderElectionID:       "7310a56a.open-cluster-management.io",
-		// LeaderElectionReleaseOnCancel defines if the leader should step down voluntarily
-		// when the Manager ends. This requires the binary to immediately end when the
-		// Manager is stopped, otherwise, this setting is unsafe. Setting this significantly
-		// speeds up voluntary leader transitions as the new leader don't have to wait
-		// LeaseDuration time first.
-		//
-		// In the default scaffold provided, the program ends immediately after
-		// the manager stops, so would be fine to enable this option. However,
-		// if you are doing or is intended to do any operation such as perform cleanups
-		// after the manager stops then its usage might be unsafe.
-		// LeaderElectionReleaseOnCancel: true,
 	})
 	if err != nil {
 		setupLog.Error(err, "unable to start manager")
@@ -290,15 +264,6 @@ func runAddonMode() {
 		klog.Info("LeaderElection disabled as not running in a cluster")
 	}
 
-	// Read environment variables for addon configuration
-	if newArgoCDOperatorImage, found := os.LookupEnv("ARGOCD_OPERATOR_IMAGE"); found && newArgoCDOperatorImage != "" {
-		ArgoCDOperatorImage = newArgoCDOperatorImage
-	}
-
-	if newArgoCDAgentImage, found := os.LookupEnv("ARGOCD_AGENT_IMAGE"); found && newArgoCDAgentImage != "" {
-		ArgoCDAgentImage = newArgoCDAgentImage
-	}
-
 	if newArgoCDAgentServerAddress, found := os.LookupEnv("ARGOCD_AGENT_SERVER_ADDRESS"); found && newArgoCDAgentServerAddress != "" {
 		ArgoCDAgentServerAddress = newArgoCDAgentServerAddress
 	}
@@ -316,18 +281,16 @@ func runAddonMode() {
 		"leaseDuration", addonOptions.LeaderElectionLeaseDuration,
 		"renewDeadline", addonOptions.LeaderElectionRenewDeadline,
 		"retryPeriod", addonOptions.LeaderElectionRetryPeriod,
-		"ArgoCDOperatorImage", ArgoCDOperatorImage,
-		"ArgoCDAgentImage", ArgoCDAgentImage,
+		"operatorImage", operatorImage,
 		"ArgoCDAgentServerAddress", ArgoCDAgentServerAddress,
 		"ArgoCDAgentServerPort", ArgoCDAgentServerPort,
 		"ArgoCDAgentMode", ArgoCDAgentMode,
 	)
 
-	// Create a new manager for addon mode
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme: scheme,
 		Metrics: metricsserver.Options{
-			BindAddress: "0", // Disable metrics in addon mode
+			BindAddress: "0",
 		},
 		LeaderElection:   enableLeaderElection,
 		LeaderElectionID: "argocd-agent-addon-leader.open-cluster-management.io",
@@ -340,9 +303,8 @@ func runAddonMode() {
 		os.Exit(1)
 	}
 
-	// Setup the addon with the manager
 	if err = addon.SetupWithManager(mgr, addonOptions.SyncInterval,
-		ArgoCDOperatorImage, ArgoCDAgentImage, ArgoCDAgentServerAddress, ArgoCDAgentServerPort, ArgoCDAgentMode); err != nil {
+		operatorImage, ArgoCDAgentServerAddress, ArgoCDAgentServerPort, ArgoCDAgentMode); err != nil {
 		setupLog.Error(err, "unable to create addon controller")
 		os.Exit(1)
 	}
@@ -358,35 +320,23 @@ func runAddonMode() {
 func runCleanupMode() {
 	setupLog.Info("Starting in cleanup mode")
 
-	// Read environment variables for cleanup configuration
-	if newArgoCDOperatorImage, found := os.LookupEnv("ARGOCD_OPERATOR_IMAGE"); found && newArgoCDOperatorImage != "" {
-		ArgoCDOperatorImage = newArgoCDOperatorImage
-	}
-
-	if newArgoCDAgentImage, found := os.LookupEnv("ARGOCD_AGENT_IMAGE"); found && newArgoCDAgentImage != "" {
-		ArgoCDAgentImage = newArgoCDAgentImage
-	}
-
 	setupLog.Info("Cleanup mode settings",
-		"ArgoCDOperatorImage", ArgoCDOperatorImage,
-		"ArgoCDAgentImage", ArgoCDAgentImage,
+		"operatorImage", operatorImage,
 	)
 
-	// Create a manager for cleanup mode (no leader election for cleanup job)
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme: scheme,
 		Metrics: metricsserver.Options{
-			BindAddress: "0", // Disable metrics in cleanup mode
+			BindAddress: "0",
 		},
-		LeaderElection: false, // Cleanup job doesn't need leader election
+		LeaderElection: false,
 	})
 	if err != nil {
 		setupLog.Error(err, "unable to start cleanup manager")
 		os.Exit(1)
 	}
 
-	// Setup the cleanup with the manager
-	if err = addon.SetupCleanupWithManager(mgr, ArgoCDOperatorImage, ArgoCDAgentImage); err != nil {
+	if err = addon.SetupCleanupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create cleanup controller")
 		os.Exit(1)
 	}
@@ -402,13 +352,11 @@ func runCleanupMode() {
 func runBasicMode() {
 	setupLog.Info("Starting in basic pull model mode")
 
-	// Create a separate scheme for basic mode without GitOpsCluster CRD
 	basicScheme := runtime.NewScheme()
 	utilruntime.Must(clientgoscheme.AddToScheme(basicScheme))
 	utilruntime.Must(clusterv1.AddToScheme(basicScheme))
 	utilruntime.Must(workv1.AddToScheme(basicScheme))
 
-	// Use the already-parsed flags from main()
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme: basicScheme,
 		Metrics: metricsserver.Options{
@@ -448,7 +396,6 @@ func runBasicMode() {
 		os.Exit(1)
 	}
 
-	// Start the ManifestWork cleanup controller
 	cleanupInterval := time.Duration(manifestWorkCleanupIntervalMin) * time.Minute
 	cleanupController := &basiccontroller.ManifestWorkCleanupReconciler{
 		Client:   mgr.GetClient(),

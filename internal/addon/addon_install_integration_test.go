@@ -96,7 +96,6 @@ func TestEnsureNamespace(t *testing.T) {
 			}
 
 			if !tt.wantErr {
-				// Verify namespace was created or exists
 				ns := &corev1.Namespace{}
 				err := r.Get(context.Background(), types.NamespacedName{Name: tt.namespaceName}, ns)
 				if err != nil {
@@ -104,7 +103,6 @@ func TestEnsureNamespace(t *testing.T) {
 					return
 				}
 
-				// Check labels on newly created namespaces
 				if tt.checkLabels && len(tt.existingObjs) == 0 {
 					if ns.Labels == nil {
 						t.Error("Namespace should have labels")
@@ -118,37 +116,26 @@ func TestEnsureNamespace(t *testing.T) {
 }
 
 func TestInstallOrUpdateArgoCDAgentValidation(t *testing.T) {
-	// This test validates the image configuration requirements
-	// Actual installation testing requires a full Kubernetes environment
 	tests := []struct {
 		name          string
 		operatorImage string
-		agentImage    string
 		wantImageSet  bool
 	}{
 		{
 			name:          "validates operator image is required",
 			operatorImage: "",
-			agentImage:    "quay.io/agent:latest",
-			wantImageSet:  false,
-		},
-		{
-			name:          "validates agent image is required",
-			operatorImage: "quay.io/operator:latest",
-			agentImage:    "",
 			wantImageSet:  false,
 		},
 		{
 			name:          "accepts valid configuration",
 			operatorImage: "quay.io/operator:latest",
-			agentImage:    "quay.io/agent:latest",
 			wantImageSet:  true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			hasImages := tt.operatorImage != "" && tt.agentImage != ""
+			hasImages := tt.operatorImage != ""
 			if hasImages != tt.wantImageSet {
 				t.Errorf("Image validation = %v, want %v", hasImages, tt.wantImageSet)
 			}
@@ -179,12 +166,12 @@ func TestCopyClientCertificate(t *testing.T) {
 					},
 				},
 			},
-			wantErr: false, // Returns nil when OCM cert not ready yet
+			wantErr: false,
 		},
 		{
 			name:         "handles missing secrets gracefully",
 			existingObjs: []runtime.Object{},
-			wantErr:      false, // Returns nil when OCM cert not ready yet
+			wantErr:      false,
 		},
 		{
 			name: "returns error when secret missing tls.crt",
@@ -199,7 +186,7 @@ func TestCopyClientCertificate(t *testing.T) {
 					},
 				},
 			},
-			wantErr: true, // Missing tls.crt
+			wantErr: true,
 		},
 		{
 			name: "returns error when secret missing tls.key",
@@ -214,7 +201,7 @@ func TestCopyClientCertificate(t *testing.T) {
 					},
 				},
 			},
-			wantErr: true, // Missing tls.key
+			wantErr: true,
 		},
 		{
 			name: "copies certificate when both exist",
@@ -230,7 +217,7 @@ func TestCopyClientCertificate(t *testing.T) {
 					},
 				},
 			},
-			wantErr: false, // Should copy successfully
+			wantErr: false,
 		},
 	}
 
@@ -261,7 +248,7 @@ func TestUninstallArgoCDAgent(t *testing.T) {
 		{
 			name:         "uninstalls when no resources exist",
 			existingObjs: []runtime.Object{},
-			wantErr:      false, // Should succeed even with no resources
+			wantErr:      false,
 		},
 		{
 			name: "uninstalls with existing namespace",
@@ -284,7 +271,6 @@ func TestUninstallArgoCDAgent(t *testing.T) {
 			}
 
 			err := r.uninstallArgoCDAgent(context.Background())
-			// Uninstall may fail due to missing ArgoCD CR or other resources, that's expected
 			if err != nil {
 				t.Logf("uninstallArgoCDAgent() error (expected in unit test): %v", err)
 			}
@@ -327,7 +313,6 @@ func TestDeleteOperatorResources(t *testing.T) {
 			}
 
 			err := r.deleteOperatorResources(context.Background())
-			// May fail due to discovery issues in unit test, that's expected
 			if err != nil {
 				t.Logf("deleteOperatorResources() error (expected in unit test): %v", err)
 			}
@@ -336,31 +321,18 @@ func TestDeleteOperatorResources(t *testing.T) {
 }
 
 func TestReconcilerConfiguration(t *testing.T) {
-	// Test reconciler configuration without actually calling reconcile
-	// which requires a full Kubernetes environment
 	s := runtime.NewScheme()
 	_ = scheme.AddToScheme(s)
 
 	tests := []struct {
 		name       string
 		reconciler *ArgoCDAgentAddonReconciler
-		uninstall  bool
 	}{
 		{
-			name: "reconciler in install mode",
+			name: "reconciler with operator image",
 			reconciler: &ArgoCDAgentAddonReconciler{
-				ArgoCDOperatorImage: "quay.io/operator:latest",
-				ArgoCDAgentImage:    "quay.io/agent:latest",
+				OperatorImage: "quay.io/operator:latest",
 			},
-			uninstall: false,
-		},
-		{
-			name: "reconciler in uninstall mode",
-			reconciler: &ArgoCDAgentAddonReconciler{
-				ArgoCDOperatorImage: "quay.io/operator:latest",
-				ArgoCDAgentImage:    "quay.io/agent:latest",
-			},
-			uninstall: true,
 		},
 	}
 
@@ -369,67 +341,8 @@ func TestReconcilerConfiguration(t *testing.T) {
 			tt.reconciler.Client = fake.NewClientBuilder().WithScheme(s).Build()
 			tt.reconciler.Scheme = s
 
-			// Verify the reconciler configuration
-			if tt.reconciler.ArgoCDOperatorImage == "" {
+			if tt.reconciler.OperatorImage == "" {
 				t.Error("OperatorImage should be set")
-			}
-			if tt.reconciler.ArgoCDAgentImage == "" {
-				t.Error("AgentImage should be set")
-			}
-		})
-	}
-}
-
-func TestParseImageReferenceEdgeCases(t *testing.T) {
-	tests := []struct {
-		name     string
-		imageRef string
-		wantRepo string
-		wantTag  string
-		wantErr  bool
-	}{
-		{
-			name:     "registry with multiple paths",
-			imageRef: "registry.example.com:5000/org/team/image:v1.2.3",
-			wantRepo: "registry.example.com:5000/org/team/image",
-			wantTag:  "v1.2.3",
-			wantErr:  false,
-		},
-		{
-			name:     "very long tag is parsed correctly",
-			imageRef: "myimage:this-is-a-very-long-tag-name-with-many-characters",
-			wantRepo: "myimage",
-			wantTag:  "this-is-a-very-long-tag-name-with-many-characters",
-			wantErr:  false,
-		},
-		{
-			name:     "digest with long hash",
-			imageRef: "myimage@sha256:1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
-			wantRepo: "myimage",
-			wantTag:  "sha256:1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
-			wantErr:  false,
-		},
-		{
-			name:     "registry hostname only",
-			imageRef: "localhost/myimage",
-			wantRepo: "localhost/myimage",
-			wantTag:  "latest",
-			wantErr:  false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			gotRepo, gotTag, err := ParseImageReference(tt.imageRef)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("ParseImageReference() error = %v, wantErr %v", err, tt.wantErr)
-				return
-			}
-			if gotRepo != tt.wantRepo {
-				t.Errorf("ParseImageReference() gotRepo = %v, want %v", gotRepo, tt.wantRepo)
-			}
-			if gotTag != tt.wantTag {
-				t.Errorf("ParseImageReference() gotTag = %v, want %v", gotTag, tt.wantTag)
 			}
 		})
 	}

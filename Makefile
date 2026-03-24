@@ -1,6 +1,13 @@
 # Image URL to use all building/pushing image targets
 IMG ?= quay.io/open-cluster-management/argocd-pull-integration:latest
 
+# ArgoCD operator image - SINGLE SOURCE OF TRUTH for the operator version.
+# This is injected at build time via ldflags into the Go binary,
+# and used to keep the hub Helm chart values in sync.
+ARGOCD_OPERATOR_IMAGE ?= quay.io/argoprojlabs/argocd-operator:latest
+
+LDFLAGS = -X main.operatorImage=$(ARGOCD_OPERATOR_IMAGE)
+
 # Get the currently used golang install path (in GOPATH/bin, unless GOBIN is set)
 ifeq (,$(shell go env GOBIN))
 GOBIN=$(shell go env GOPATH)/bin
@@ -49,6 +56,20 @@ manifests: controller-gen ## Generate WebhookConfiguration, ClusterRole and Cust
 generate: controller-gen ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations.
 	$(CONTROLLER_GEN) object:headerFile="hack/boilerplate.go.txt" paths="./api/..." paths="./internal/controller/..."
 
+.PHONY: sync-operator-chart
+sync-operator-chart: ## Copy embedded operator chart to hub chart (single source of truth)
+	@echo "Syncing operator chart from embedded chart to hub chart..."
+	cp internal/addon/charts/argocd-agent-addon/templates/operator.yaml \
+		charts/argocd-agent-addon/templates/argocd-operator/operator.yaml
+	@echo "Operator chart synced successfully"
+
+.PHONY: verify-operator-chart-sync
+verify-operator-chart-sync: ## Verify hub operator chart matches embedded chart
+	@diff -q internal/addon/charts/argocd-agent-addon/templates/operator.yaml \
+		charts/argocd-agent-addon/templates/argocd-operator/operator.yaml \
+		>/dev/null 2>&1 \
+		|| { echo "ERROR: operator charts are out of sync. Run 'make sync-operator-chart'."; exit 1; }
+
 .PHONY: fmt
 fmt: ## Run go fmt against code.
 	go fmt ./...
@@ -58,7 +79,7 @@ vet: ## Run go vet against code.
 	go vet ./...
 
 .PHONY: test
-test: manifests generate fmt vet setup-envtest ## Run tests.
+test: manifests generate fmt vet setup-envtest verify-operator-chart-sync ## Run tests.
 	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" go test $$(go list ./... | grep -v /e2e) -coverprofile cover.out
 
 # E2E Test Configuration
@@ -87,8 +108,8 @@ setup-e2e-clusters: ## Setup KinD clusters, build and load controller image
 	$(KIND) load docker-image $(E2E_IMG) --name $(HUB_CLUSTER)
 	$(KIND) load docker-image $(E2E_IMG) --name $(SPOKE_CLUSTER)
 
-.PHONY: test-e2e
-test-e2e: manifests generate fmt vet ## Run full e2e tests (deploy + AppProject/Application sync + status reflection)
+.PHONY: test-e2e-advanced-pull
+test-e2e-advanced-pull: manifests generate fmt vet ## Run advanced pull model e2e tests (assumes clusters exist)
 	@echo "===== Setting up OCM environment ====="
 	CLUSTERADM_VERSION=$(CLUSTERADM_VERSION) ./test/e2e/scripts/setup_ocm_env.sh
 	@echo ""
@@ -108,75 +129,19 @@ test-e2e: manifests generate fmt vet ## Run full e2e tests (deploy + AppProject/
 	$(KUBECTL) --context kind-$(HUB_CLUSTER) wait --for=jsonpath='{.spec.type}'=NodePort \
 		svc/argocd-agent-principal -n argocd --timeout=120s || true
 	@echo ""
-	@echo "===== Running e2e tests ====="
-	go test -tags=e2e ./test/e2e/ -v -ginkgo.v --ginkgo.label-filter="full"
+	@echo "===== Running advanced pull model e2e tests ====="
+	go test -tags=e2e ./test/e2e/ -v -ginkgo.v --ginkgo.label-filter="advanced-pull"
 	@echo ""
-	@echo "===== E2E Tests Complete ====="
+	@echo "===== Advanced Pull E2E Tests Complete ====="
 
-.PHONY: test-e2e-full
-test-e2e-full: ## Complete e2e test with kind cluster setup, build, and full integration tests
+.PHONY: test-e2e-advanced-pull-local
+test-e2e-advanced-pull-local: ## Complete advanced pull model e2e test with kind cluster setup
 	$(MAKE) setup-e2e-clusters
 	@echo ""
-	$(MAKE) test-e2e
+	$(MAKE) test-e2e-advanced-pull
 
-.PHONY: test-e2e-cleanup
-test-e2e-cleanup: manifests generate fmt vet ## Run e2e cleanup tests (checks addon cleanup behavior)
-	@echo "===== Setting up OCM environment ====="
-	CLUSTERADM_VERSION=$(CLUSTERADM_VERSION) ./test/e2e/scripts/setup_ocm_env.sh
-	@echo ""
-	@echo "===== Installing addon via Helm ====="
-	$(KUBECTL) config use-context kind-$(HUB_CLUSTER)
-	helm install argocd-agent-addon \
-		./charts/argocd-agent-addon \
-		--namespace argocd \
-		--create-namespace \
-		--set image=quay.io/open-cluster-management/argocd-pull-integration \
-		--set tag=latest \
-		--set principalServiceType=NodePort \
-		--wait \
-		--timeout 10m
-	@echo ""
-	@echo "===== Waiting for ArgoCD principal service ====="
-	$(KUBECTL) --context kind-$(HUB_CLUSTER) wait --for=jsonpath='{.spec.type}'=NodePort \
-		svc/argocd-agent-principal -n argocd --timeout=120s || true
-	@echo ""
-	@echo "===== Running cleanup e2e tests ====="
-	go test -tags=e2e ./test/e2e/ -v -ginkgo.v --ginkgo.label-filter="cleanup"
-	@echo ""
-	@echo "===== E2E Cleanup Tests Complete ====="
-
-.PHONY: test-e2e-cleanup-full
-test-e2e-cleanup-full: ## Complete e2e test with cleanup verification including Application (cluster setup + deployment + cleanup)
-	$(MAKE) setup-e2e-clusters
-	@echo ""
-	@echo "===== Setting up OCM environment ====="
-	CLUSTERADM_VERSION=$(CLUSTERADM_VERSION) ./test/e2e/scripts/setup_ocm_env.sh
-	@echo ""
-	@echo "===== Installing addon via Helm ====="
-	$(KUBECTL) config use-context kind-$(HUB_CLUSTER)
-	helm install argocd-agent-addon \
-		./charts/argocd-agent-addon \
-		--namespace argocd \
-		--create-namespace \
-		--set image=quay.io/open-cluster-management/argocd-pull-integration \
-		--set tag=latest \
-		--set principalServiceType=NodePort \
-		--wait \
-		--timeout 10m
-	@echo ""
-	@echo "===== Waiting for ArgoCD principal service ====="
-	$(KUBECTL) --context kind-$(HUB_CLUSTER) wait --for=jsonpath='{.spec.type}'=NodePort \
-		svc/argocd-agent-principal -n argocd --timeout=120s || true
-	@echo ""
-	@echo "===== Running full cleanup e2e tests (with Application) ====="
-	go test -tags=e2e ./test/e2e/ -v -ginkgo.v --ginkgo.label-filter="cleanup-full"
-	@echo ""
-	@echo "===== E2E Cleanup Full Tests Complete ====="
-	@echo "Hub context: kind-$(HUB_CLUSTER)"
-	@echo "Spoke context: kind-$(SPOKE_CLUSTER)"
-
-.PHONY: test-e2e-custom-namespace
-test-e2e-custom-namespace: manifests generate fmt vet ## Run e2e test with custom ArgoCD namespaces (hub: notargocd, spoke: argocdnot)
+.PHONY: test-e2e-advanced-pull-custom-namespace
+test-e2e-advanced-pull-custom-namespace: manifests generate fmt vet ## Run advanced pull e2e test with custom ArgoCD namespaces
 	@echo "===== Setting up OCM environment ====="
 	CLUSTERADM_VERSION=$(CLUSTERADM_VERSION) ./test/e2e/scripts/setup_ocm_env.sh
 	@echo ""
@@ -203,20 +168,20 @@ test-e2e-custom-namespace: manifests generate fmt vet ## Run e2e test with custo
 	HUB_ARGOCD_OPERATOR_NAMESPACE=notargocd-operator-system \
 	SPOKE_ARGOCD_NAMESPACE=argocdnot \
 	SPOKE_ARGOCD_OPERATOR_NAMESPACE=argocdnot-operator-system \
-	go test -tags=e2e ./test/e2e/ -v -ginkgo.v --ginkgo.label-filter="custom-namespace"
+	go test -tags=e2e ./test/e2e/ -v -ginkgo.v --ginkgo.label-filter="advanced-pull-custom-namespace"
 	@echo ""
-	@echo "===== E2E Custom Namespace Tests Complete ====="
+	@echo "===== Advanced Pull Custom Namespace E2E Tests Complete ====="
 	@echo "Hub context: kind-$(HUB_CLUSTER) (ArgoCD: notargocd, Operator: notargocd-operator-system)"
 	@echo "Spoke context: kind-$(SPOKE_CLUSTER) (ArgoCD: argocdnot, Operator: argocdnot-operator-system)"
 
-.PHONY: test-e2e-custom-namespace-full
-test-e2e-custom-namespace-full: ## Complete e2e test with custom namespaces (cluster setup + custom namespace deployment + tests)
+.PHONY: test-e2e-advanced-pull-custom-namespace-local
+test-e2e-advanced-pull-custom-namespace-local: ## Complete advanced pull e2e test with custom namespaces (cluster setup + tests)
 	$(MAKE) setup-e2e-clusters
 	@echo ""
-	$(MAKE) test-e2e-custom-namespace
+	$(MAKE) test-e2e-advanced-pull-custom-namespace
 
-.PHONY: test-e2e-basic
-test-e2e-basic: manifests generate fmt vet ## Run e2e tests for basic pull model (assumes clusters exist and images loaded)
+.PHONY: test-e2e-basic-pull
+test-e2e-basic-pull: manifests generate fmt vet ## Run e2e tests for basic pull model (assumes clusters exist and images loaded)
 	@echo "===== Setting up OCM environment ====="
 	CLUSTERADM_VERSION=$(CLUSTERADM_VERSION) ./test/e2e/scripts/setup_ocm_env.sh
 	@echo ""
@@ -246,37 +211,37 @@ test-e2e-basic: manifests generate fmt vet ## Run e2e tests for basic pull model
 	$(KUBECTL) apply -f hack/e2e/mca.yaml --context kind-$(HUB_CLUSTER)
 	$(KUBECTL) apply -f hack/e2e/appproj.yaml --context kind-$(HUB_CLUSTER)
 	@echo ""
-	@echo "===== Running e2e basic tests ====="
+	@echo "===== Running e2e basic pull tests ====="
 	$(KUBECTL) config use-context kind-$(HUB_CLUSTER)
-	go test -tags=e2e ./test/e2e/ -v -ginkgo.v --ginkgo.label-filter="basic-full"
+	go test -tags=e2e ./test/e2e/ -v -ginkgo.v --ginkgo.label-filter="basic-pull"
 	@echo ""
-	@echo "===== E2E Basic Tests Complete ====="
+	@echo "===== Basic Pull E2E Tests Complete ====="
 	@echo "Hub context: kind-$(HUB_CLUSTER)"
 	@echo "Spoke context: kind-$(SPOKE_CLUSTER)"
 
-.PHONY: test-e2e-basic-full
-test-e2e-basic-full: ## Complete e2e test with basic pull model (cluster setup + deployment + tests)
+.PHONY: test-e2e-basic-pull-local
+test-e2e-basic-pull-local: ## Complete basic pull model e2e test (cluster setup + deployment + tests)
 	$(MAKE) setup-e2e-clusters
 	@echo ""
-	@echo "===== Running basic tests ====="
-	$(MAKE) test-e2e-basic
+	@echo "===== Running basic pull tests ====="
+	$(MAKE) test-e2e-basic-pull
 
 ##@ Build
 
 .PHONY: build
 build: manifests generate fmt vet ## Build manager binary.
-	go build -o bin/manager cmd/main.go
+	go build -ldflags "$(LDFLAGS)" -o bin/manager cmd/main.go
 
 .PHONY: run
 run: manifests generate fmt vet ## Run a controller from your host.
-	go run ./cmd/main.go
+	go run -ldflags "$(LDFLAGS)" ./cmd/main.go
 
 # If you wish to build the manager image targeting other platforms you can use the --platform flag.
 # (i.e. docker build --platform linux/arm64). However, you must enable docker buildKit for it.
 # More info: https://docs.docker.com/develop/develop-images/build_enhancements/
 .PHONY: docker-build
 docker-build: ## Build docker image with the manager.
-	$(CONTAINER_TOOL) build -t ${IMG} .
+	$(CONTAINER_TOOL) build --build-arg ARGOCD_OPERATOR_IMAGE=$(ARGOCD_OPERATOR_IMAGE) -t ${IMG} .
 
 .PHONY: build-images
 build-images: docker-build ## Alias for docker-build to support CI workflows.
@@ -298,7 +263,7 @@ docker-buildx: ## Build and push docker image for the manager for cross-platform
 	sed -e '1 s/\(^FROM\)/FROM --platform=\$$\{BUILDPLATFORM\}/; t' -e ' 1,// s//FROM --platform=\$$\{BUILDPLATFORM\}/' Dockerfile > Dockerfile.cross
 	- $(CONTAINER_TOOL) buildx create --name argocd-pull-integration-builder
 	$(CONTAINER_TOOL) buildx use argocd-pull-integration-builder
-	- $(CONTAINER_TOOL) buildx build --push --platform=$(PLATFORMS) --tag ${IMG} -f Dockerfile.cross .
+	- $(CONTAINER_TOOL) buildx build --push --platform=$(PLATFORMS) --build-arg ARGOCD_OPERATOR_IMAGE=$(ARGOCD_OPERATOR_IMAGE) --tag ${IMG} -f Dockerfile.cross .
 	- $(CONTAINER_TOOL) buildx rm argocd-pull-integration-builder
 	rm Dockerfile.cross
 

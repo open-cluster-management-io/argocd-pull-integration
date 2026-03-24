@@ -403,15 +403,15 @@ spec:
         command:
         - /manager
         env:
-        - name: ARGOCD_PRINCIPAL_TLS_SERVER_ALLOW_GENERATE
-          value: "false"
         - name: ARGOCD_CLUSTER_CONFIG_NAMESPACES
           value: "*"
+        - name: ARGOCD_PRINCIPAL_TLS_SERVER_ALLOW_GENERATE
+          value: "false"
         - name: WATCH_NAMESPACE
           valueFrom:
             fieldRef:
               fieldPath: metadata.annotations['olm.targetNamespaces']
-        image: {{ .Values.argoCDOperatorImage }}:{{ .Values.argoCDOperatorTag }}
+        image: "{{ .Values.operatorImage }}:{{ .Values.operatorImageTag }}"
         livenessProbe:
           httpGet:
             path: /healthz

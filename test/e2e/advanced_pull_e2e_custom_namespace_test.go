@@ -31,7 +31,7 @@ import (
 	"open-cluster-management.io/argocd-pull-integration/test/utils"
 )
 
-var _ = Describe("ArgoCD Agent Addon Custom Namespace E2E", Label("custom-namespace"), Ordered, func() {
+var _ = Describe("ArgoCD Agent Addon Custom Namespace E2E", Label("advanced-pull-custom-namespace"), Ordered, func() {
 	SetDefaultEventuallyTimeout(5 * time.Minute)
 	SetDefaultEventuallyPollingInterval(5 * time.Second)
 

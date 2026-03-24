@@ -27,7 +27,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/klog/v2"
-	"open-cluster-management.io/argocd-pull-integration/internal/pkg/images"
 )
 
 const (
@@ -130,19 +129,6 @@ func (r *ArgoCDAgentAddonReconciler) installOrUpdateArgoCDAgent(ctx context.Cont
 	operatorNamespace, argoCDNamespace := getNamespaceConfig()
 	klog.Infof("Using namespaces - operator: %s, argocd: %s", operatorNamespace, argoCDNamespace)
 
-	// Set defaults if images are not provided
-	operatorImage := r.ArgoCDOperatorImage
-	if operatorImage == "" {
-		operatorImage = images.GetFullImageReference(images.DefaultOperatorImage, images.DefaultOperatorTag)
-		klog.V(1).Infof("Using default operator image: %s", operatorImage)
-	}
-
-	agentImage := r.ArgoCDAgentImage
-	if agentImage == "" {
-		agentImage = images.GetFullImageReference(images.DefaultAgentImage, images.DefaultAgentTag)
-		klog.V(1).Infof("Using default agent image: %s", agentImage)
-	}
-
 	// 1. Apply CRDs if they don't exist
 	if err := r.applyCRDIfNotExists(ctx, "argocds", "argoproj.io/v1beta1", "charts/argocd-agent-addon/crds/argocd-operator-crds.yaml"); err != nil {
 		return fmt.Errorf("failed to apply ArgoCD CRDs: %w", err)
@@ -158,15 +144,14 @@ func (r *ArgoCDAgentAddonReconciler) installOrUpdateArgoCDAgent(ctx context.Cont
 		return fmt.Errorf("failed to create ArgoCD namespace: %w", err)
 	}
 
-	// 4. Template and apply ArgoCD operator with the resolved images
-	if err := r.templateAndApplyChart(ctx, "charts/argocd-agent-addon", operatorNamespace, argoCDNamespace, "argocd-agent-addon", operatorImage, agentImage); err != nil {
+	// 4. Template and apply ArgoCD operator with the build-time operator image
+	if err := r.templateAndApplyChart(ctx, "charts/argocd-agent-addon", operatorNamespace, argoCDNamespace, "argocd-agent-addon"); err != nil {
 		return fmt.Errorf("failed to template and apply ArgoCD operator: %w", err)
 	}
 
 	// 5. Copy OCM client certificate to ArgoCD namespace
 	if err := r.copyClientCertificate(ctx); err != nil {
 		klog.Warningf("Failed to copy client certificate (will retry): %v", err)
-		// Don't fail the reconciliation - the certificate might not be ready yet
 	}
 
 	klog.Info("Successfully installed/updated ArgoCD agent addon")
@@ -175,7 +160,6 @@ func (r *ArgoCDAgentAddonReconciler) installOrUpdateArgoCDAgent(ctx context.Cont
 
 // ParseImageReference parses an image reference into repository and tag
 func ParseImageReference(imageRef string) (string, string, error) {
-	// First try to parse as image@digest format
 	if strings.Contains(imageRef, "@") {
 		parts := strings.Split(imageRef, "@")
 		if len(parts) == 2 {
@@ -183,19 +167,13 @@ func ParseImageReference(imageRef string) (string, string, error) {
 		}
 	}
 
-	// Try to parse as image:tag format
 	if strings.Contains(imageRef, ":") {
-		// Find the last colon to handle registry URLs with ports
 		lastColonIndex := strings.LastIndex(imageRef, ":")
 		if lastColonIndex != -1 {
 			repository := imageRef[:lastColonIndex]
 			tag := imageRef[lastColonIndex+1:]
 
-			// Check if this is a tag (not a port number in the registry URL)
-			// Tags don't contain slashes and are typically shorter than paths
-			// Port numbers would be numeric-only
 			if !strings.Contains(tag, "/") {
-				// This looks like a tag
 				return repository, tag, nil
 			}
 		}
@@ -207,10 +185,8 @@ func ParseImageReference(imageRef string) (string, string, error) {
 
 // copyClientCertificate copies the OCM client certificate to the ArgoCD namespace as a TLS secret
 func (r *ArgoCDAgentAddonReconciler) copyClientCertificate(ctx context.Context) error {
-	// Get namespace configuration from environment
 	_, argoCDNamespace := getNamespaceConfig()
 
-	// Get the secret from OCM addon namespace
 	sourceSecret := &corev1.Secret{}
 	sourceKey := types.NamespacedName{
 		Name:      "argocd-agent-addon-open-cluster-management.io-argocd-agent-addon-client-cert",
@@ -226,7 +202,6 @@ func (r *ArgoCDAgentAddonReconciler) copyClientCertificate(ctx context.Context) 
 		return fmt.Errorf("failed to get source secret: %w", err)
 	}
 
-	// Extract tls.crt and tls.key from the OCM secret
 	tlsCrt, hasCrt := sourceSecret.Data["tls.crt"]
 	tlsKey, hasKey := sourceSecret.Data["tls.key"]
 
@@ -234,7 +209,6 @@ func (r *ArgoCDAgentAddonReconciler) copyClientCertificate(ctx context.Context) 
 		return fmt.Errorf("OCM secret missing tls.crt or tls.key")
 	}
 
-	// Create or update the secret in ArgoCD namespace as a proper TLS secret
 	targetSecret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "argocd-agent-open-cluster-management.io-argocd-agent-addon-client-cert",
@@ -250,7 +224,6 @@ func (r *ArgoCDAgentAddonReconciler) copyClientCertificate(ctx context.Context) 
 		},
 	}
 
-	// Check if target secret exists
 	existingSecret := &corev1.Secret{}
 	targetKey := types.NamespacedName{
 		Name:      targetSecret.Name,
@@ -266,7 +239,6 @@ func (r *ArgoCDAgentAddonReconciler) copyClientCertificate(ctx context.Context) 
 		return fmt.Errorf("failed to check existing secret: %w", err)
 	}
 
-	// Update existing secret
 	existingSecret.Data = map[string][]byte{
 		"tls.crt": tlsCrt,
 		"tls.key": tlsKey,

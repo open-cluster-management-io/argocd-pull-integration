@@ -19,6 +19,7 @@ package addon
 import (
 	"context"
 	"embed"
+	"fmt"
 	"os"
 	"time"
 
@@ -40,23 +41,29 @@ type ArgoCDAgentAddonReconciler struct {
 	Scheme                   *runtime.Scheme
 	Config                   *rest.Config
 	Interval                 int
-	ArgoCDOperatorImage      string
-	ArgoCDAgentImage         string
+	OperatorImage            string
 	ArgoCDAgentServerAddress string
 	ArgoCDAgentServerPort    string
 	ArgoCDAgentMode          string
 }
 
-// SetupWithManager sets up the addon with the Manager
+// SetupWithManager sets up the addon with the Manager.
+// Returns an error if operatorImage is empty or unparseable.
 func SetupWithManager(mgr manager.Manager, interval int,
-	argoCDOperatorImage, argoCDAgentImage, argoCDAgentServerAddress, argoCDAgentServerPort, argoCDAgentMode string) error {
+	operatorImage, argoCDAgentServerAddress, argoCDAgentServerPort, argoCDAgentMode string) error {
+	if operatorImage == "" {
+		return fmt.Errorf("operatorImage must not be empty (set via Makefile ARGOCD_OPERATOR_IMAGE / ldflags)")
+	}
+	if _, _, err := ParseImageReference(operatorImage); err != nil {
+		return fmt.Errorf("invalid operatorImage %q: %w", operatorImage, err)
+	}
+
 	reconciler := &ArgoCDAgentAddonReconciler{
 		Client:                   mgr.GetClient(),
 		Scheme:                   mgr.GetScheme(),
 		Config:                   mgr.GetConfig(),
 		Interval:                 interval,
-		ArgoCDOperatorImage:      argoCDOperatorImage,
-		ArgoCDAgentImage:         argoCDAgentImage,
+		OperatorImage:            operatorImage,
 		ArgoCDAgentServerAddress: argoCDAgentServerAddress,
 		ArgoCDAgentServerPort:    argoCDAgentServerPort,
 		ArgoCDAgentMode:          argoCDAgentMode,
@@ -68,20 +75,16 @@ func SetupWithManager(mgr manager.Manager, interval int,
 // ArgoCDAgentCleanupReconciler handles cleanup/uninstall of ArgoCD agent addon
 type ArgoCDAgentCleanupReconciler struct {
 	client.Client
-	Scheme              *runtime.Scheme
-	Config              *rest.Config
-	ArgoCDOperatorImage string
-	ArgoCDAgentImage    string
+	Scheme *runtime.Scheme
+	Config *rest.Config
 }
 
 // SetupCleanupWithManager sets up the cleanup reconciler with the Manager
-func SetupCleanupWithManager(mgr manager.Manager, argoCDOperatorImage, argoCDAgentImage string) error {
+func SetupCleanupWithManager(mgr manager.Manager) error {
 	reconciler := &ArgoCDAgentCleanupReconciler{
-		Client:              mgr.GetClient(),
-		Scheme:              mgr.GetScheme(),
-		Config:              mgr.GetConfig(),
-		ArgoCDOperatorImage: argoCDOperatorImage,
-		ArgoCDAgentImage:    argoCDAgentImage,
+		Client: mgr.GetClient(),
+		Scheme: mgr.GetScheme(),
+		Config: mgr.GetConfig(),
 	}
 
 	return mgr.Add(reconciler)
@@ -137,7 +140,6 @@ func (r *ArgoCDAgentCleanupReconciler) Start(ctx context.Context) error {
 	klog.Info("Successfully completed ArgoCD Agent Addon cleanup")
 
 	// Exit successfully after cleanup is done
-	// This is needed for the cleanup job to complete properly
 	os.Exit(0)
 
 	return nil

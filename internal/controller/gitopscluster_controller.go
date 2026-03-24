@@ -493,16 +493,6 @@ func (r *GitOpsClusterReconciler) buildAddonVariables(
 		variables["ARGOCD_OPERATOR_NAMESPACE"] = gitOpsCluster.Spec.ArgoCDAgentAddon.OperatorNamespace
 	}
 
-	// Add operator image if specified
-	if gitOpsCluster.Spec.ArgoCDAgentAddon.OperatorImage != "" {
-		variables["ARGOCD_OPERATOR_IMAGE"] = gitOpsCluster.Spec.ArgoCDAgentAddon.OperatorImage
-	}
-
-	// Add agent image if specified
-	if gitOpsCluster.Spec.ArgoCDAgentAddon.AgentImage != "" {
-		variables["ARGOCD_AGENT_IMAGE"] = gitOpsCluster.Spec.ArgoCDAgentAddon.AgentImage
-	}
-
 	return variables
 }
 

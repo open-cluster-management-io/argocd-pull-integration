@@ -33,7 +33,6 @@ import (
 	addonv1alpha1 "open-cluster-management.io/api/addon/v1alpha1"
 	workv1 "open-cluster-management.io/api/work/v1"
 	appsv1alpha1 "open-cluster-management.io/argocd-pull-integration/api/v1alpha1"
-	"open-cluster-management.io/argocd-pull-integration/internal/pkg/images"
 )
 
 const (
@@ -42,9 +41,7 @@ const (
 )
 
 // getControllerImage retrieves the controller's image from environment variable
-// This follows K8s standard practice of using downward API to inject pod metadata
 func (r *GitOpsClusterReconciler) getControllerImage(ctx context.Context, namespace string) (string, error) {
-	// Get image from environment variable (set via downward API in deployment)
 	image := os.Getenv(ControllerImageEnvVar)
 	if image == "" {
 		return "", fmt.Errorf("CONTROLLER_IMAGE environment variable is not set - this must be configured in the deployment")
@@ -56,7 +53,6 @@ func (r *GitOpsClusterReconciler) getControllerImage(ctx context.Context, namesp
 
 // getAddOnTemplateName generates a unique AddOnTemplate name for the GitOpsCluster
 func getAddOnTemplateName(gitOpsCluster *appsv1alpha1.GitOpsCluster) string {
-	// Use namespace-name format for uniqueness
 	return fmt.Sprintf("argocd-agent-addon-%s-%s", gitOpsCluster.Namespace, gitOpsCluster.Name)
 }
 
@@ -64,21 +60,9 @@ func getAddOnTemplateName(gitOpsCluster *appsv1alpha1.GitOpsCluster) string {
 func (r *GitOpsClusterReconciler) EnsureAddOnTemplate(ctx context.Context, gitOpsCluster *appsv1alpha1.GitOpsCluster) error {
 	templateName := getAddOnTemplateName(gitOpsCluster)
 
-	// Get the controller image
 	addonImage, err := r.getControllerImage(ctx, gitOpsCluster.Namespace)
 	if err != nil {
 		return fmt.Errorf("failed to get controller image: %w", err)
-	}
-
-	// Get operator and agent images from GitOpsCluster spec or use defaults
-	operatorImage := gitOpsCluster.Spec.ArgoCDAgentAddon.OperatorImage
-	if operatorImage == "" {
-		operatorImage = images.GetFullImageReference(images.DefaultOperatorImage, images.DefaultOperatorTag)
-	}
-
-	agentImage := gitOpsCluster.Spec.ArgoCDAgentAddon.AgentImage
-	if agentImage == "" {
-		agentImage = images.GetFullImageReference(images.DefaultAgentImage, images.DefaultAgentTag)
 	}
 
 	// Build the AddOnTemplate
@@ -96,7 +80,7 @@ func (r *GitOpsClusterReconciler) EnsureAddOnTemplate(ctx context.Context, gitOp
 			AddonName: ArgoCDAgentAddonName,
 			AgentSpec: workv1.ManifestWorkSpec{
 				Workload: workv1.ManifestsTemplate{
-					Manifests: buildAddonManifests(addonImage, operatorImage, agentImage),
+					Manifests: buildAddonManifests(addonImage),
 				},
 			},
 			Registration: []addonv1alpha1.RegistrationSpec{
@@ -106,7 +90,7 @@ func (r *GitOpsClusterReconciler) EnsureAddOnTemplate(ctx context.Context, gitOp
 						SignerName: "open-cluster-management.io/argocd-agent-addon",
 						SigningCA: addonv1alpha1.SigningCARef{
 							Name:      "argocd-agent-ca",
-							Namespace: gitOpsCluster.Namespace, // Use GitOpsCluster namespace
+							Namespace: gitOpsCluster.Namespace,
 						},
 					},
 				},
@@ -114,11 +98,9 @@ func (r *GitOpsClusterReconciler) EnsureAddOnTemplate(ctx context.Context, gitOp
 		},
 	}
 
-	// Check if AddOnTemplate already exists
 	existing := &addonv1alpha1.AddOnTemplate{}
 	err = r.Get(ctx, types.NamespacedName{Name: templateName}, existing)
 	if err == nil {
-		// AddOnTemplate exists, update it
 		klog.V(2).InfoS("Updating AddOnTemplate", "name", templateName)
 		existing.Spec = addonTemplate.Spec
 		existing.Labels = addonTemplate.Labels
@@ -129,13 +111,14 @@ func (r *GitOpsClusterReconciler) EnsureAddOnTemplate(ctx context.Context, gitOp
 		return fmt.Errorf("failed to get AddOnTemplate: %w", err)
 	}
 
-	// Create new AddOnTemplate
 	klog.InfoS("Creating AddOnTemplate", "name", templateName)
 	return r.Create(ctx, addonTemplate)
 }
 
-// buildAddonManifests builds the manifest list for the AddOnTemplate
-func buildAddonManifests(addonImage, operatorImage, agentImage string) []workv1.Manifest {
+// buildAddonManifests builds the manifest list for the AddOnTemplate.
+// The addon binary has the operator image baked in at build time, so no
+// operator/agent image env vars are needed.
+func buildAddonManifests(addonImage string) []workv1.Manifest {
 	manifests := []workv1.Manifest{
 		// Pre-delete cleanup job
 		{
@@ -165,14 +148,6 @@ func buildAddonManifests(addonImage, operatorImage, agentImage string) []workv1.
 										Command:         []string{"/manager"},
 										Args:            []string{"--mode=cleanup"},
 										Env: []corev1.EnvVar{
-											{
-												Name:  "ARGOCD_OPERATOR_IMAGE",
-												Value: operatorImage,
-											},
-											{
-												Name:  "ARGOCD_AGENT_IMAGE",
-												Value: agentImage,
-											},
 											{
 												Name:  "ARGOCD_NAMESPACE",
 												Value: "{{ARGOCD_NAMESPACE}}",
@@ -269,14 +244,6 @@ func buildAddonManifests(addonImage, operatorImage, agentImage string) []workv1.
 										Command:         []string{"/manager"},
 										Args:            []string{"--mode=addon"},
 										Env: []corev1.EnvVar{
-											{
-												Name:  "ARGOCD_OPERATOR_IMAGE",
-												Value: operatorImage,
-											},
-											{
-												Name:  "ARGOCD_AGENT_IMAGE",
-												Value: agentImage,
-											},
 											{
 												Name:  "ARGOCD_AGENT_SERVER_ADDRESS",
 												Value: "{{ARGOCD_AGENT_SERVER_ADDRESS}}",

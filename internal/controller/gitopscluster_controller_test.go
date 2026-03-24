@@ -107,7 +107,7 @@ func TestBuildAddonVariables(t *testing.T) {
 			},
 		},
 		{
-			name: "with custom images",
+			name: "with autonomous mode",
 			gitOpsCluster: &appsv1alpha1.GitOpsCluster{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-cluster",
@@ -115,9 +115,7 @@ func TestBuildAddonVariables(t *testing.T) {
 				},
 				Spec: appsv1alpha1.GitOpsClusterSpec{
 					ArgoCDAgentAddon: appsv1alpha1.ArgoCDAgentAddonSpec{
-						Mode:          "autonomous",
-						OperatorImage: "quay.io/operator:v1.0.0",
-						AgentImage:    "quay.io/agent:v2.0.0",
+						Mode: "autonomous",
 					},
 				},
 			},
@@ -127,8 +125,6 @@ func TestBuildAddonVariables(t *testing.T) {
 				"ARGOCD_AGENT_SERVER_ADDRESS": "argocd-server.argocd.svc",
 				"ARGOCD_AGENT_SERVER_PORT":    "8080",
 				"ARGOCD_AGENT_MODE":           "autonomous",
-				"ARGOCD_OPERATOR_IMAGE":       "quay.io/operator:v1.0.0",
-				"ARGOCD_AGENT_IMAGE":          "quay.io/agent:v2.0.0",
 			},
 		},
 		{
