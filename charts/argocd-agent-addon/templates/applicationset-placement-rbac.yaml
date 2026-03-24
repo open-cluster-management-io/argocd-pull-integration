@@ -1,0 +1,28 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: argocd-applicationset-placement
+  namespace: {{ .Values.global.argoCDNamespace }}
+rules:
+- apiGroups:
+  - cluster.open-cluster-management.io
+  resources:
+  - placementdecisions
+  verbs:
+  - get
+  - list
+  - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: argocd-applicationset-placement
+  namespace: {{ .Values.global.argoCDNamespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: argocd-applicationset-placement
+subjects:
+- kind: ServiceAccount
+  name: argocd-applicationset-controller
+  namespace: {{ .Values.global.argoCDNamespace }}

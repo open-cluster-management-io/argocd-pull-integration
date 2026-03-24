@@ -88,6 +88,47 @@ graph LR
 1. Create a OCM `GitOpsCluster` CR that references an OCM Placement to select target clusters
 2. The controller automatically deploys OCM argocd-agent add-on, configures secure gRPC communication, manages certificates, and sets up cluster registration
 3. argocd-agent connects to hub Argo CD and synchronizes applications with **full status feedback**
+4. Use `ApplicationSet` with `clusterDecisionResource` generator to automatically create Applications for all selected clusters using `spec.destination.name` for routing
+
+**ApplicationSet Integration:**
+
+The advanced pull model uses **destination-based mapping** where Applications are routed to managed clusters based on `spec.destination.name`. This enables natural `ApplicationSet` integration:
+
+```yaml
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: my-appset
+  namespace: argocd  # Same namespace as ArgoCD
+spec:
+  generators:
+  - clusterDecisionResource:
+      configMapRef: ocm-placement-generator
+      labelSelector:
+        matchLabels:
+          cluster.open-cluster-management.io/placement: placement
+      requeueAfterSeconds: 30
+  template:
+    metadata:
+      name: '{{name}}-myapp'
+    spec:
+      destination:
+        name: '{{name}}'           # Routes to agent by cluster name
+        namespace: my-namespace
+      project: default
+      source:
+        repoURL: https://github.com/myorg/myrepo.git
+        path: manifests
+        targetRevision: HEAD
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+        - CreateNamespace=true
+```
+
+The `clusterDecisionResource` generator reads from OCM `PlacementDecision` resources to discover target clusters. Each cluster gets its own Application with `destination.name` set to the cluster name, which the argocd-agent principal uses to route the Application to the correct agent.
 
 For detailed argocd-agent architecture and operational modes, see [argocd-agent Documentation](https://argocd-agent.readthedocs.io/).
 

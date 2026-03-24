@@ -11,6 +11,7 @@ spec:
   argoCDAgent:
     principal:
       enabled: true
+      destinationBasedMapping: true
       auth: "mtls:CN=system:open-cluster-management:cluster:([^:]+):addon:argocd-agent-addon:agent:argocd-agent-addon-agent"
       server:
         enableWebSocket: false
