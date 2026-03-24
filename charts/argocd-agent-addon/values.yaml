@@ -5,15 +5,12 @@ image: quay.io/open-cluster-management/argocd-pull-integration
 tag: latest
 replicas: 1
 
-# ArgoCD operator image
-# This operator manages ArgoCD instances on the hub cluster
-argoCDOperatorImage: quay.io/argoprojlabs/argocd-operator
-argoCDOperatorTag: v0.17.0
-
-# ArgoCD agent image
-# This is the argocd-agent that runs in principal server mode on the hub
-argoCDAgentImage: quay.io/argoprojlabs/argocd-agent
-argoCDAgentTag: v0.5.3
+# ArgoCD operator image.
+# Authoritative version lives in Makefile ARGOCD_OPERATOR_IMAGE (injected into
+# the Go binary via ldflags). These Helm defaults MUST match the Makefile value.
+# The release workflow updates the tag automatically for tagged releases.
+operatorImage: quay.io/argoprojlabs/argocd-operator
+operatorImageTag: latest
 
 # Principal service type: LoadBalancer for production (cloud LB),
 # NodePort for local dev (e.g. kind) - override via --set principalServiceType=NodePort

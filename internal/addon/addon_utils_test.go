@@ -26,7 +26,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes/scheme"
-	"open-cluster-management.io/argocd-pull-integration/internal/pkg/images"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
@@ -185,7 +184,6 @@ func TestApplyManifest(t *testing.T) {
 			}
 
 			if !tt.wantErr {
-				// Verify management label was added (except for skip case)
 				if tt.obj.GetAnnotations() == nil || tt.obj.GetAnnotations()["argocd-addon.open-cluster-management.io/skip"] != "true" {
 					labels := tt.obj.GetLabels()
 					if labels == nil || labels["app.kubernetes.io/managed-by"] != "argocd-agent-addon" {
@@ -193,7 +191,6 @@ func TestApplyManifest(t *testing.T) {
 					}
 				}
 
-				// For non-skip cases, verify object was created/updated
 				if tt.obj.GetAnnotations() == nil || tt.obj.GetAnnotations()["argocd-addon.open-cluster-management.io/skip"] != "true" {
 					key := types.NamespacedName{
 						Name:      tt.obj.GetName(),
@@ -240,7 +237,6 @@ func TestApplyManifestLabels(t *testing.T) {
 		t.Fatalf("applyManifest() failed: %v", err)
 	}
 
-	// Verify both existing and management labels are present
 	labels := obj.GetLabels()
 	if labels["existing"] != "label" {
 		t.Error("applyManifest() should preserve existing labels")
@@ -306,17 +302,12 @@ func TestApplyManifestWithoutNamespace(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// The function sets namespace to the namespace parameter if not set
-			// We're just testing the logic, not the actual namespace setting
 			ns := tt.obj.GetNamespace()
 			kind := tt.obj.GetKind()
 
-			// Verify initial state
 			if tt.shouldHaveNS && ns == "" && kind != "Namespace" && kind != "ClusterRole" && kind != "ClusterRoleBinding" {
-				// Namespace should be set by the function for these types
 				t.Logf("Object of kind %s would have namespace set", kind)
 			} else if !tt.shouldHaveNS && (kind == "Namespace" || kind == "ClusterRole" || kind == "ClusterRoleBinding") {
-				// These should not have namespace set
 				t.Logf("Object of kind %s should not have namespace", kind)
 			}
 		})
@@ -327,7 +318,6 @@ func TestApplyManifestSkipAnnotation(t *testing.T) {
 	s := runtime.NewScheme()
 	_ = scheme.AddToScheme(s)
 
-	// Create existing object with skip annotation
 	existingObj := &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "skip-config",
@@ -347,7 +337,6 @@ func TestApplyManifestSkipAnnotation(t *testing.T) {
 		Scheme: s,
 	}
 
-	// Try to apply new version
 	newObj := &unstructured.Unstructured{
 		Object: map[string]interface{}{
 			"apiVersion": "v1",
@@ -367,7 +356,6 @@ func TestApplyManifestSkipAnnotation(t *testing.T) {
 		t.Fatalf("applyManifest() failed: %v", err)
 	}
 
-	// Verify original object wasn't changed
 	result := &corev1.ConfigMap{}
 	err = r.Get(context.Background(), types.NamespacedName{
 		Name:      "skip-config",
@@ -386,8 +374,6 @@ func TestApplyManifestSkipAnnotation(t *testing.T) {
 }
 
 func TestCopyEmbeddedToTemp(t *testing.T) {
-	// Test the logic of copying embedded files
-	// This tests the structure without actual filesystem operations
 	testCases := []struct {
 		name     string
 		srcPath  string
@@ -402,7 +388,6 @@ func TestCopyEmbeddedToTemp(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			// Just verify the paths are valid
 			if tc.srcPath == "" {
 				t.Error("srcPath should not be empty")
 			}
@@ -414,15 +399,12 @@ func TestCopyEmbeddedToTemp(t *testing.T) {
 }
 
 func TestTemplateAndApplyChartValidation(t *testing.T) {
-	// Test parameter validation for templateAndApplyChart
-	// Full testing requires Helm chart files
 	tests := []struct {
 		name          string
 		chartPath     string
 		namespace     string
 		releaseName   string
 		operatorImage string
-		agentImage    string
 		wantValid     bool
 	}{
 		{
@@ -431,7 +413,6 @@ func TestTemplateAndApplyChartValidation(t *testing.T) {
 			namespace:     "argocd",
 			releaseName:   "test-release",
 			operatorImage: "quay.io/operator:latest",
-			agentImage:    "quay.io/agent:latest",
 			wantValid:     true,
 		},
 		{
@@ -440,7 +421,6 @@ func TestTemplateAndApplyChartValidation(t *testing.T) {
 			namespace:     "argocd",
 			releaseName:   "test-release",
 			operatorImage: "quay.io/operator:latest",
-			agentImage:    "quay.io/agent:latest",
 			wantValid:     false,
 		},
 	}
@@ -448,7 +428,7 @@ func TestTemplateAndApplyChartValidation(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			hasAllParams := tt.chartPath != "" && tt.namespace != "" &&
-				tt.releaseName != "" && tt.operatorImage != "" && tt.agentImage != ""
+				tt.releaseName != "" && tt.operatorImage != ""
 			if hasAllParams != tt.wantValid {
 				t.Errorf("Parameter validation = %v, want %v", hasAllParams, tt.wantValid)
 			}
@@ -457,7 +437,6 @@ func TestTemplateAndApplyChartValidation(t *testing.T) {
 }
 
 func TestApplyCRDIfNotExistsValidation(t *testing.T) {
-	// Test parameter validation for applyCRDIfNotExists
 	tests := []struct {
 		name       string
 		resource   string
@@ -492,7 +471,6 @@ func TestApplyCRDIfNotExistsValidation(t *testing.T) {
 }
 
 func TestConstants(t *testing.T) {
-	// Verify namespace configuration reads defaults correctly
 	operatorNS, argoCDNS := getNamespaceConfig()
 	if operatorNS != "argocd-operator-system" {
 		t.Errorf("operatorNamespace = %v, want argocd-operator-system", operatorNS)
@@ -500,11 +478,59 @@ func TestConstants(t *testing.T) {
 	if argoCDNS != "argocd" {
 		t.Errorf("argoCDNamespace = %v, want argocd", argoCDNS)
 	}
-	// Verify centralized image defaults are defined for external dependencies
-	if images.DefaultOperatorImage == "" {
-		t.Error("DefaultOperatorImage should be defined")
+}
+
+func TestParseImageReferenceEdgeCases(t *testing.T) {
+	tests := []struct {
+		name     string
+		imageRef string
+		wantRepo string
+		wantTag  string
+		wantErr  bool
+	}{
+		{
+			name:     "registry with multiple paths",
+			imageRef: "registry.example.com:5000/org/team/image:v1.2.3",
+			wantRepo: "registry.example.com:5000/org/team/image",
+			wantTag:  "v1.2.3",
+			wantErr:  false,
+		},
+		{
+			name:     "very long tag is parsed correctly",
+			imageRef: "myimage:this-is-a-very-long-tag-name-with-many-characters",
+			wantRepo: "myimage",
+			wantTag:  "this-is-a-very-long-tag-name-with-many-characters",
+			wantErr:  false,
+		},
+		{
+			name:     "digest with long hash",
+			imageRef: "myimage@sha256:1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
+			wantRepo: "myimage",
+			wantTag:  "sha256:1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
+			wantErr:  false,
+		},
+		{
+			name:     "registry hostname only",
+			imageRef: "localhost/myimage",
+			wantRepo: "localhost/myimage",
+			wantTag:  "latest",
+			wantErr:  false,
+		},
 	}
-	if images.DefaultAgentImage == "" {
-		t.Error("DefaultAgentImage should be defined")
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotRepo, gotTag, err := ParseImageReference(tt.imageRef)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ParseImageReference() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if gotRepo != tt.wantRepo {
+				t.Errorf("ParseImageReference() gotRepo = %v, want %v", gotRepo, tt.wantRepo)
+			}
+			if gotTag != tt.wantTag {
+				t.Errorf("ParseImageReference() gotTag = %v, want %v", gotTag, tt.wantTag)
+			}
+		})
 	}
 }

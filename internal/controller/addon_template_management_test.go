@@ -58,7 +58,6 @@ func TestGetControllerImage(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Set environment variable
 			if tt.envVar != "" {
 				os.Setenv(ControllerImageEnvVar, tt.envVar)
 				defer os.Unsetenv(ControllerImageEnvVar)
@@ -146,10 +145,7 @@ func TestEnsureAddOnTemplate(t *testing.T) {
 				Name: "test-placement",
 				Kind: "Placement",
 			},
-			ArgoCDAgentAddon: appsv1alpha1.ArgoCDAgentAddonSpec{
-				OperatorImage: "test-operator:v1",
-				AgentImage:    "test-agent:v1",
-			},
+			ArgoCDAgentAddon: appsv1alpha1.ArgoCDAgentAddonSpec{},
 		},
 	}
 
@@ -181,7 +177,6 @@ func TestEnsureAddOnTemplate(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Set CONTROLLER_IMAGE environment variable for test
 			originalEnv := os.Getenv(ControllerImageEnvVar)
 			os.Setenv(ControllerImageEnvVar, "test-controller:v1.0.0")
 			defer func() {
@@ -204,7 +199,6 @@ func TestEnsureAddOnTemplate(t *testing.T) {
 			}
 
 			if !tt.wantErr {
-				// Verify template was created/updated
 				template := &addonv1alpha1.AddOnTemplate{}
 				err := r.Get(context.Background(), types.NamespacedName{
 					Name: "argocd-agent-addon-test-namespace-test-cluster",
@@ -218,13 +212,12 @@ func TestEnsureAddOnTemplate(t *testing.T) {
 }
 
 func TestBuildAddonManifests(t *testing.T) {
-	manifests := buildAddonManifests("addon-image:v1", "operator-image:v1", "agent-image:v1")
+	manifests := buildAddonManifests("addon-image:v1")
 
 	if len(manifests) == 0 {
 		t.Error("buildAddonManifests() returned no manifests")
 	}
 
-	// Verify we have the expected manifests (pre-delete job, serviceaccount, clusterrolebinding, deployment)
 	if len(manifests) != 4 {
 		t.Errorf("buildAddonManifests() returned %d manifests, want 4", len(manifests))
 	}

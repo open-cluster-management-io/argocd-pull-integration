@@ -37,7 +37,7 @@ import (
 )
 
 // templateAndApplyChart templates a Helm chart and applies the rendered manifests
-func (r *ArgoCDAgentAddonReconciler) templateAndApplyChart(ctx context.Context, chartPath, operatorNamespace, argoCDNamespace, releaseName, operatorImage, agentImage string) error {
+func (r *ArgoCDAgentAddonReconciler) templateAndApplyChart(ctx context.Context, chartPath, operatorNamespace, argoCDNamespace, releaseName string) error {
 	klog.Infof("Templating and applying chart %s in namespace %s", releaseName, operatorNamespace)
 
 	// Create temp directory for chart files
@@ -63,25 +63,16 @@ func (r *ArgoCDAgentAddonReconciler) templateAndApplyChart(ctx context.Context, 
 	values := map[string]interface{}{}
 
 	// Parse the operator image
-	operatorImageRepo, operatorImageTag, err := ParseImageReference(operatorImage)
+	operatorImageRepo, operatorImageTag, err := ParseImageReference(r.OperatorImage)
 	if err != nil {
 		return fmt.Errorf("failed to parse operator image: %w", err)
 	}
 
-	// Parse the agent image
-	agentImageRepo, agentImageTag, err := ParseImageReference(agentImage)
-	if err != nil {
-		return fmt.Errorf("failed to parse agent image: %w", err)
-	}
-
 	// Set up global values for argocd-agent-addon chart
 	argocdAgent := map[string]interface{}{
-		"image": agentImageRepo,
-		"tag":   agentImageTag,
-		"mode":  r.ArgoCDAgentMode,
+		"mode": r.ArgoCDAgentMode,
 	}
 
-	// Set server connection details
 	if r.ArgoCDAgentServerAddress != "" {
 		argocdAgent["serverAddress"] = r.ArgoCDAgentServerAddress
 	}
@@ -120,12 +111,10 @@ func (r *ArgoCDAgentAddonReconciler) templateAndApplyChart(ctx context.Context, 
 
 	// Apply each rendered manifest
 	for name, content := range files {
-		// Skip empty files and notes
 		if len(strings.TrimSpace(content)) == 0 || strings.HasSuffix(name, "NOTES.txt") {
 			continue
 		}
 
-		// Parse YAML documents in the file
 		yamlDocs := strings.Split(content, "\n---\n")
 		for _, doc := range yamlDocs {
 			doc = strings.TrimSpace(doc)
@@ -133,22 +122,17 @@ func (r *ArgoCDAgentAddonReconciler) templateAndApplyChart(ctx context.Context, 
 				continue
 			}
 
-			// Parse the YAML into an unstructured object
 			var obj unstructured.Unstructured
 			if err := k8syaml.Unmarshal([]byte(doc), &obj); err != nil {
 				klog.Warningf("Failed to parse YAML document in %s: %v", name, err)
 				continue
 			}
 
-			// Skip if no kind or metadata
 			if obj.GetKind() == "" || obj.GetName() == "" {
 				continue
 			}
 
-			// Set the namespace if it's a namespaced resource and doesn't have one
-			// Use operatorNamespace for operator resources, argoCDNamespace for ArgoCD resources
 			if obj.GetNamespace() == "" && obj.GetKind() != "Namespace" && obj.GetKind() != "ClusterRole" && obj.GetKind() != "ClusterRoleBinding" {
-				// ArgoCD resource should go to argoCDNamespace, everything else to operatorNamespace
 				if obj.GetKind() == "ArgoCD" {
 					obj.SetNamespace(argoCDNamespace)
 				} else {
@@ -156,11 +140,9 @@ func (r *ArgoCDAgentAddonReconciler) templateAndApplyChart(ctx context.Context, 
 				}
 			}
 
-			// Apply the manifest
 			if err := r.applyManifest(ctx, &obj); err != nil {
 				klog.Errorf("Failed to apply manifest %s/%s %s: %v",
 					obj.GetKind(), obj.GetName(), obj.GetNamespace(), err)
-				// Continue with other manifests even if one fails
 			}
 		}
 	}
@@ -181,7 +163,6 @@ func (r *ArgoCDAgentAddonReconciler) copyEmbeddedToTemp(fs embed.FS, srcPath, de
 		destEntryPath := filepath.Join(destPath, entry.Name())
 
 		if entry.IsDir() {
-			// Create directory and recurse
 			if err := os.MkdirAll(destEntryPath, 0750); err != nil {
 				return err
 			}
@@ -189,13 +170,11 @@ func (r *ArgoCDAgentAddonReconciler) copyEmbeddedToTemp(fs embed.FS, srcPath, de
 				return err
 			}
 		} else {
-			// Read embedded file
 			data, err := fs.ReadFile(srcEntryPath)
 			if err != nil {
 				return err
 			}
 
-			// Write file to destination
 			err = os.WriteFile(destEntryPath, data, 0600)
 			if err != nil {
 				return err
@@ -208,7 +187,6 @@ func (r *ArgoCDAgentAddonReconciler) copyEmbeddedToTemp(fs embed.FS, srcPath, de
 
 // applyManifest applies a Kubernetes manifest
 func (r *ArgoCDAgentAddonReconciler) applyManifest(ctx context.Context, obj *unstructured.Unstructured) error {
-	// Check if the resource already exists
 	existing := &unstructured.Unstructured{}
 	existing.SetAPIVersion(obj.GetAPIVersion())
 	existing.SetKind(obj.GetKind())
@@ -223,7 +201,6 @@ func (r *ArgoCDAgentAddonReconciler) applyManifest(ctx context.Context, obj *uns
 		return err
 	}
 
-	// Check if existing resource has skip annotation
 	if err == nil {
 		annotations := existing.GetAnnotations()
 		if annotations != nil && annotations["argocd-addon.open-cluster-management.io/skip"] == "true" {
@@ -232,7 +209,6 @@ func (r *ArgoCDAgentAddonReconciler) applyManifest(ctx context.Context, obj *uns
 		}
 	}
 
-	// Add management label to indicate this resource is managed by argocd-agent-addon
 	labels := obj.GetLabels()
 	if labels == nil {
 		labels = make(map[string]string)
@@ -241,12 +217,10 @@ func (r *ArgoCDAgentAddonReconciler) applyManifest(ctx context.Context, obj *uns
 	obj.SetLabels(labels)
 
 	if err != nil && errors.IsNotFound(err) {
-		// Resource doesn't exist, create it
 		klog.V(1).Infof("Creating %s/%s %s", obj.GetKind(), obj.GetName(), obj.GetNamespace())
 		return r.Create(ctx, obj)
 	}
 
-	// Resource exists, update it
 	obj.SetResourceVersion(existing.GetResourceVersion())
 	klog.V(1).Infof("Updating %s/%s %s", obj.GetKind(), obj.GetName(), obj.GetNamespace())
 	return r.Update(ctx, obj)
@@ -254,7 +228,6 @@ func (r *ArgoCDAgentAddonReconciler) applyManifest(ctx context.Context, obj *uns
 
 // applyCRDIfNotExists applies a CRD only if it doesn't already exist
 func (r *ArgoCDAgentAddonReconciler) applyCRDIfNotExists(ctx context.Context, resource, apiVersion, yamlFilePath string) error {
-	// Check if API resource exists
 	discoveryClient, err := discovery.NewDiscoveryClientForConfig(r.Config)
 	if err != nil {
 		return fmt.Errorf("failed to create discovery client: %v", err)
@@ -262,7 +235,6 @@ func (r *ArgoCDAgentAddonReconciler) applyCRDIfNotExists(ctx context.Context, re
 
 	apiResourceList, err := discoveryClient.ServerResourcesForGroupVersion(apiVersion)
 	if err == nil {
-		// Check if the resource exists in the API resource list
 		for _, apiResource := range apiResourceList.APIResources {
 			if apiResource.Name == resource {
 				klog.Infof("CRD %s already exists, skipping installation", yamlFilePath)
@@ -271,7 +243,6 @@ func (r *ArgoCDAgentAddonReconciler) applyCRDIfNotExists(ctx context.Context, re
 		}
 	}
 
-	// CRD doesn't exist, install it
 	klog.Infof("Installing CRD %s", yamlFilePath)
 
 	crdData, err := ChartFS.ReadFile(yamlFilePath)
@@ -279,7 +250,6 @@ func (r *ArgoCDAgentAddonReconciler) applyCRDIfNotExists(ctx context.Context, re
 		return fmt.Errorf("failed to read CRD file %s: %v", yamlFilePath, err)
 	}
 
-	// Parse YAML documents (CRD file may contain multiple CRDs)
 	yamlDocs := strings.Split(string(crdData), "\n---\n")
 	for _, doc := range yamlDocs {
 		doc = strings.TrimSpace(doc)
@@ -293,25 +263,22 @@ func (r *ArgoCDAgentAddonReconciler) applyCRDIfNotExists(ctx context.Context, re
 			continue
 		}
 
-		// Skip if no kind
 		if crd.Kind != "CustomResourceDefinition" {
 			continue
 		}
 
-		// Check if CRD should be skipped due to annotation
 		annotations := crd.GetAnnotations()
 		if annotations != nil && annotations["argocd-addon.open-cluster-management.io/skip"] == "true" {
 			klog.Infof("Skipping CRD %s due to skip annotation", crd.Name)
 			continue
 		}
 
-		// Add management label to indicate this CRD is managed by argocd-agent-addon
-		labels := crd.GetLabels()
-		if labels == nil {
-			labels = make(map[string]string)
+		crdLabels := crd.GetLabels()
+		if crdLabels == nil {
+			crdLabels = make(map[string]string)
 		}
-		labels["app.kubernetes.io/managed-by"] = "argocd-agent-addon"
-		crd.SetLabels(labels)
+		crdLabels["app.kubernetes.io/managed-by"] = "argocd-agent-addon"
+		crd.SetLabels(crdLabels)
 
 		err = r.Create(ctx, &crd)
 		if err != nil && !errors.IsAlreadyExists(err) {

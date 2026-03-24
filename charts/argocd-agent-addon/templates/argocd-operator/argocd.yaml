@@ -12,7 +12,6 @@ spec:
     principal:
       enabled: true
       auth: "mtls:CN=system:open-cluster-management:cluster:([^:]+):addon:argocd-agent-addon:agent:argocd-agent-addon-agent"
-      image: {{ .Values.argoCDAgentImage }}:{{ .Values.argoCDAgentTag }}
       server:
         enableWebSocket: false
         keepAliveMinInterval: "30s"

@@ -47,14 +47,6 @@ type ArgoCDAgentAddonSpec struct {
 	// +kubebuilder:default=managed
 	Mode string `json:"mode,omitempty"`
 
-	// OperatorImage is the ArgoCD operator image to use
-	// +optional
-	OperatorImage string `json:"operatorImage,omitempty"`
-
-	// AgentImage is the ArgoCD agent image to use
-	// +optional
-	AgentImage string `json:"agentImage,omitempty"`
-
 	// OperatorNamespace is the namespace where the ArgoCD operator will be deployed on the managed cluster
 	// +optional
 	OperatorNamespace string `json:"operatorNamespace,omitempty"`

@@ -1,7 +1,15 @@
-# This values.yaml is used for embedding in the addon controller
-# The controller dynamically sets these values when deploying to managed clusters
-# See internal/controller/addon_template_management.go for how these are populated
+# Values are dynamically set by the addon controller at runtime.
+# The authoritative operator version is Makefile ARGOCD_OPERATOR_IMAGE, injected
+# into the Go binary via ldflags at build time. These defaults exist only so
+# Helm can lint/template the chart standalone during development.
+
+operatorImage: quay.io/argoprojlabs/argocd-operator
+operatorImageTag: latest
 
 global:
-  argoCDOperatorNamespace: ""
-  argoCDNamespace: ""
+  argoCDOperatorNamespace: argocd-operator-system
+  argoCDNamespace: argocd
+  argoCDAgent:
+    mode: managed
+    serverAddress: ""
+    serverPort: ""

@@ -31,7 +31,7 @@ import (
 	"open-cluster-management.io/argocd-pull-integration/test/utils"
 )
 
-var _ = Describe("ArgoCD Agent Addon Full E2E", Label("full"), Ordered, func() {
+var _ = Describe("Advanced Pull Model E2E", Label("advanced-pull"), Ordered, func() {
 	SetDefaultEventuallyTimeout(5 * time.Minute)
 	SetDefaultEventuallyPollingInterval(5 * time.Second)
 
@@ -585,6 +585,93 @@ spec:
 			}, 3*time.Minute, 5*time.Second).Should(Succeed())
 
 			By("Hub and Spoke Application status are in sync")
+		})
+	})
+
+	Context("Addon Cleanup", func() {
+		It("should cleanup addon resources when placement is updated to remove clusters", func() {
+			By("recording initial state")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "--context", cluster1Context,
+					"get", "argocd", "argocd", "-n", argoCDNamespace)
+				_, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+			}, 1*time.Minute, 5*time.Second).Should(Succeed(), "ArgoCD CR should exist before cleanup")
+
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "--context", cluster1Context,
+					"get", "deployment", "-n", operatorNamespace,
+					"-l", "app.kubernetes.io/managed-by=argocd-agent-addon")
+				_, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+			}, 1*time.Minute, 5*time.Second).Should(Succeed(), "Operator deployment should exist before cleanup")
+
+			By("verifying ManagedClusterAddOn exists")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "--context", hubContext,
+					"get", "managedclusteraddon", "argocd-agent-addon",
+					"-n", "cluster1")
+				_, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+			}, 1*time.Minute, 5*time.Second).Should(Succeed())
+
+			By("updating placement to select non-existent cluster to trigger cleanup")
+			patchYAML := `{"spec":{"predicates":[{"requiredClusterSelector":{"labelSelector":{"matchLabels":{"non-existent-cluster":"true"}}}}]}}`
+			cmd := exec.Command("kubectl", "--context", hubContext,
+				"patch", "placement", "placement",
+				"-n", argoCDNamespace,
+				"--type=merge",
+				"-p", patchYAML)
+			_, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("verifying placement no longer selects cluster1")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "--context", hubContext,
+					"get", "placement", "placement",
+					"-n", argoCDNamespace,
+					"-o", "jsonpath={.status.numberOfSelectedClusters}")
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).To(Equal("0"))
+			}, 1*time.Minute, 5*time.Second).Should(Succeed())
+
+			By("waiting for ManagedClusterAddOn to be automatically deleted")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "--context", hubContext,
+					"get", "managedclusteraddon", "argocd-agent-addon",
+					"-n", "cluster1")
+				_, err := utils.Run(cmd)
+				g.Expect(err).To(HaveOccurred())
+			}, 5*time.Minute, 5*time.Second).Should(Succeed())
+
+			By("verifying ArgoCD CR is deleted on spoke cluster")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "--context", cluster1Context,
+					"get", "argocd", "argocd", "-n", argoCDNamespace)
+				_, err := utils.Run(cmd)
+				g.Expect(err).To(HaveOccurred())
+			}, 3*time.Minute, 5*time.Second).Should(Succeed())
+
+			By("verifying ArgoCD operator deployment is deleted on spoke cluster")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "--context", cluster1Context,
+					"get", "deployment", "-n", operatorNamespace,
+					"-l", "app.kubernetes.io/managed-by=argocd-agent-addon",
+					"-o", "jsonpath={.items[*].metadata.name}")
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).To(BeEmpty())
+			}, 2*time.Minute, 5*time.Second).Should(Succeed())
+
+			By("verifying Application still exists on spoke cluster (preserved during cleanup)")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "--context", cluster1Context,
+					"get", "application", "test-app",
+					"-n", argoCDNamespace)
+				_, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+			}, 30*time.Second, 5*time.Second).Should(Succeed())
 		})
 	})
 })

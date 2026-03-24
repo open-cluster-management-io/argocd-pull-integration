@@ -31,7 +31,7 @@ import (
 	"open-cluster-management.io/argocd-pull-integration/test/utils"
 )
 
-var _ = Describe("ArgoCD Basic Pull Model Full Integration E2E", Label("basic-full"), Ordered, func() {
+var _ = Describe("ArgoCD Basic Pull Model Full Integration E2E", Label("basic-pull"), Ordered, func() {
 	SetDefaultEventuallyTimeout(10 * time.Minute)
 	SetDefaultEventuallyPollingInterval(5 * time.Second)
 

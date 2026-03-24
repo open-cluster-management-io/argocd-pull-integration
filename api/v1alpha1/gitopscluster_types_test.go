@@ -86,8 +86,6 @@ func TestArgoCDAgentAddonSpec(t *testing.T) {
 				PrincipalServerAddress: "argocd-server.argocd.svc",
 				PrincipalServerPort:    "8080",
 				Mode:                   "managed",
-				OperatorImage:          "quay.io/operator:v1.0.0",
-				AgentImage:             "quay.io/agent:v1.0.0",
 			},
 		},
 		{
