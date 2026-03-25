@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strings"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -34,6 +35,11 @@ import (
 var _ = Describe("ArgoCD Agent Addon Custom Namespace E2E", Label("advanced-pull-custom-namespace"), Ordered, func() {
 	SetDefaultEventuallyTimeout(5 * time.Minute)
 	SetDefaultEventuallyPollingInterval(5 * time.Second)
+
+	const (
+		appSetName      = "test-appset"
+		targetNamespace = "guestbook"
+	)
 
 	var (
 		hubArgoCDNamespace           string
@@ -68,7 +74,6 @@ var _ = Describe("ArgoCD Agent Addon Custom Namespace E2E", Label("advanced-pull
 		fmt.Fprintf(GinkgoWriter, "  Spoke Operator: %s\n", spokeArgoCDOperatorNamespace)
 
 		By("Verifying test environment is ready")
-		// Environment setup is done by Makefile
 		cmd := exec.Command("kubectl", "config", "get-contexts", hubContext)
 		_, err := utils.Run(cmd)
 		Expect(err).NotTo(HaveOccurred(), "Hub context should exist")
@@ -344,6 +349,205 @@ var _ = Describe("ArgoCD Agent Addon Custom Namespace E2E", Label("advanced-pull
 					"-n", spokeArgoCDNamespace)
 				_, err := utils.Run(cmd)
 				g.Expect(err).NotTo(HaveOccurred())
+			}).Should(Succeed())
+		})
+	})
+
+	Context("Application Sync via ApplicationSet in Custom Namespace", func() {
+		var appName string
+
+		It("should sync AppProject from hub to spoke", func() {
+			By("creating AppProject on hub in custom namespace")
+			appProjectYAML := fmt.Sprintf(`apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: default
+  namespace: %s
+  labels:
+    e2e-sync-test: "true"
+spec:
+  clusterResourceWhitelist:
+  - group: '*'
+    kind: '*'
+  destinations:
+  - namespace: '*'
+    server: '*'
+  sourceRepos:
+  - '*'
+  sourceNamespaces:
+  - '*'`, hubArgoCDNamespace)
+			cmd := exec.Command("kubectl", "--context", hubContext, "apply", "-f", "-")
+			cmd.Stdin = strings.NewReader(appProjectYAML)
+			_, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("verifying AppProject synced to spoke cluster")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "--context", cluster1Context,
+					"get", "appproject", "default",
+					"-n", spokeArgoCDNamespace,
+					"-o", "jsonpath={.metadata.labels.e2e-sync-test}")
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).To(Equal("true"))
+			}, 60*time.Second).Should(Succeed())
+		})
+
+		It("should create ApplicationSet on hub in custom namespace", func() {
+			By("creating test ApplicationSet on hub using clusterDecisionResource generator")
+			appSetYaml := fmt.Sprintf(`
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: %s
+  namespace: %s
+spec:
+  generators:
+  - clusterDecisionResource:
+      configMapRef: ocm-placement-generator
+      labelSelector:
+        matchLabels:
+          cluster.open-cluster-management.io/placement: placement
+      requeueAfterSeconds: 30
+  template:
+    metadata:
+      name: '{{name}}-app'
+    spec:
+      destination:
+        name: '{{name}}'
+        namespace: %s
+      project: default
+      source:
+        path: guestbook
+        repoURL: https://github.com/argoproj/argocd-example-apps.git
+        targetRevision: HEAD
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+        - CreateNamespace=true
+`, appSetName, hubArgoCDNamespace, targetNamespace)
+
+			cmd := exec.Command("kubectl", "--context", hubContext, "apply", "-f", "-")
+			cmd.Stdin = strings.NewReader(appSetYaml)
+			_, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("verifying ApplicationSet is created on hub")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "--context", hubContext,
+					"get", "applicationset", appSetName,
+					"-n", hubArgoCDNamespace)
+				_, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+			}).Should(Succeed())
+
+			fmt.Fprintf(GinkgoWriter, "ApplicationSet %s created in %s namespace\n", appSetName, hubArgoCDNamespace)
+		})
+
+		It("should create Application from ApplicationSet in custom namespace", func() {
+			By("verifying Application is created by ApplicationSet")
+			appName = "cluster1-app"
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "--context", hubContext,
+					"get", "application", appName,
+					"-n", hubArgoCDNamespace)
+				_, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+			}).Should(Succeed())
+
+			By("verifying Application is owned by the ApplicationSet")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "--context", hubContext,
+					"get", "application", appName,
+					"-n", hubArgoCDNamespace,
+					"-o", "jsonpath={.metadata.ownerReferences[0].kind}/{.metadata.ownerReferences[0].name}")
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).To(Equal("ApplicationSet/" + appSetName))
+			}).Should(Succeed())
+
+			By("verifying Application destination.name is set to agent cluster name")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "--context", hubContext,
+					"get", "application", appName,
+					"-n", hubArgoCDNamespace,
+					"-o", "jsonpath={.spec.destination.name}")
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).To(Equal("cluster1"))
+			}).Should(Succeed())
+
+			fmt.Fprintf(GinkgoWriter, "Application %s created by ApplicationSet %s in %s namespace\n", appName, appSetName, hubArgoCDNamespace)
+		})
+
+		It("should sync Application to spoke cluster via argocd-agent", func() {
+			By("verifying Application synced to spoke cluster")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "--context", cluster1Context,
+					"get", "application", appName,
+					"-n", hubArgoCDNamespace,
+					"-o", "jsonpath={.metadata.name}")
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).To(Equal(appName))
+			}, 2*time.Minute, 5*time.Second).Should(Succeed())
+
+			By("verifying Application sync status on spoke")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "--context", cluster1Context,
+					"get", "application", appName,
+					"-n", hubArgoCDNamespace,
+					"-o", "jsonpath={.status.sync.status}")
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).To(Equal("Synced"))
+			}, 3*time.Minute, 5*time.Second).Should(Succeed())
+
+			By("verifying Application health status on spoke")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "--context", cluster1Context,
+					"get", "application", appName,
+					"-n", hubArgoCDNamespace,
+					"-o", "jsonpath={.status.health.status}")
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).To(Equal("Healthy"))
+			}, 3*time.Minute, 5*time.Second).Should(Succeed())
+
+			By("verifying Application status on hub matches spoke")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "--context", hubContext,
+					"get", "application", appName,
+					"-n", hubArgoCDNamespace,
+					"-o", "jsonpath={.status.sync.status}")
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).To(Equal("Synced"))
+			}, 3*time.Minute, 5*time.Second).Should(Succeed())
+
+			fmt.Fprintf(GinkgoWriter, "Application %s synced to spoke via argocd-agent with custom namespaces\n", appName)
+		})
+
+		It("should deploy application resources on spoke", func() {
+			By("verifying guestbook namespace is created on spoke")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "--context", cluster1Context,
+					"get", "namespace", targetNamespace)
+				_, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+			}).Should(Succeed())
+
+			By("verifying guestbook deployment is running on spoke")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "--context", cluster1Context,
+					"get", "deployment", "guestbook-ui",
+					"-n", targetNamespace,
+					"-o", "jsonpath={.status.availableReplicas}")
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).To(Equal("1"))
 			}).Should(Succeed())
 		})
 	})
