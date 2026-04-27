@@ -3,7 +3,7 @@ module open-cluster-management.io/argocd-pull-integration
 go 1.25.5
 
 require (
-	github.com/onsi/ginkgo/v2 v2.28.1
+	github.com/onsi/ginkgo/v2 v2.28.2
 	github.com/onsi/gomega v1.39.1
 	github.com/openshift/library-go v0.0.0-20251222131241-289839b3ffe8
 	helm.sh/helm/v3 v3.20.2
