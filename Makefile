@@ -4,7 +4,7 @@ IMG ?= quay.io/open-cluster-management/argocd-pull-integration:latest
 # ArgoCD operator image - SINGLE SOURCE OF TRUTH for the operator version.
 # This is injected at build time via ldflags into the Go binary,
 # and used to keep the hub Helm chart values in sync.
-ARGOCD_OPERATOR_IMAGE ?= quay.io/argoprojlabs/argocd-operator:latest
+ARGOCD_OPERATOR_IMAGE ?= quay.io/argoprojlabs/argocd-operator:v0.18.0
 
 LDFLAGS = -X main.operatorImage=$(ARGOCD_OPERATOR_IMAGE)
 
