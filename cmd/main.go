@@ -53,7 +53,7 @@ import (
 
 // Set at build time via ldflags from Makefile's ARGOCD_OPERATOR_IMAGE.
 // This is the single source of truth for the ArgoCD operator version.
-var operatorImage = "quay.io/argoprojlabs/argocd-operator:latest"
+var operatorImage = "quay.io/argoprojlabs/argocd-operator:v0.18.0"
 
 // AddonOptions for addon mode command line flag parsing
 type AddonOptions struct {

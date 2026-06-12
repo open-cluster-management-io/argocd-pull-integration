@@ -4,7 +4,7 @@
 # Helm can lint/template the chart standalone during development.
 
 operatorImage: quay.io/argoprojlabs/argocd-operator
-operatorImageTag: latest
+operatorImageTag: v0.18.0
 
 global:
   argoCDOperatorNamespace: argocd-operator-system

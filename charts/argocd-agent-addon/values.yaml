@@ -10,7 +10,7 @@ replicas: 1
 # the Go binary via ldflags). These Helm defaults MUST match the Makefile value.
 # The release workflow updates the tag automatically for tagged releases.
 operatorImage: quay.io/argoprojlabs/argocd-operator
-operatorImageTag: latest
+operatorImageTag: v0.18.0
 
 # Principal service type: LoadBalancer for production (cloud LB),
 # NodePort for local dev (e.g. kind) - override via --set principalServiceType=NodePort
