@@ -18,16 +18,20 @@ package controller
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apiserver/pkg/authentication/user"
+	"k8s.io/client-go/util/cert"
 	"k8s.io/klog/v2"
 	clusterv1 "open-cluster-management.io/api/cluster/v1"
-	"open-cluster-management.io/sdk-go/pkg/certrotation"
 )
 
 const (
@@ -39,12 +43,20 @@ const (
 	ArgoCDSecretTypeValue = "cluster"
 	// The principal server expects this specific label to map agent connections to clusters
 	ArgoCDAgentClusterMappingLabel = "argocd-agent.argoproj-labs.io/agent-name"
+
+	clusterClientCertificateSignerSkew = 2 * time.Second
 )
 
 // ClusterConfig represents the ArgoCD cluster configuration
 type ClusterConfig struct {
-	Username string `json:"username,omitempty"`
-	Password string `json:"password,omitempty"`
+	Username        string           `json:"username,omitempty"`
+	Password        string           `json:"password,omitempty"`
+	TLSClientConfig *TLSClientConfig `json:"tlsClientConfig,omitempty"`
+}
+
+// TLSClientConfig represents the TLS client configuration for ArgoCD cluster secrets.
+type TLSClientConfig struct {
+	Insecure bool   `json:"insecure"`
 	CertData []byte `json:"certData,omitempty"`
 	KeyData  []byte `json:"keyData,omitempty"`
 	CAData   []byte `json:"caData,omitempty"`
@@ -225,9 +237,12 @@ func (r *GitOpsClusterReconciler) buildArgoCDClusterSecretData(
 	config := ClusterConfig{
 		Username: cluster.Name,
 		Password: cluster.Name, // Using cluster name as password for simplicity
-		CertData: clientCertPEM,
-		KeyData:  clientKeyPEM,
-		CAData:   caCertPEM,
+		TLSClientConfig: &TLSClientConfig{
+			Insecure: false,
+			CertData: clientCertPEM,
+			KeyData:  clientKeyPEM,
+			CAData:   caCertPEM,
+		},
 	}
 
 	configJSON, err := json.Marshal(config)
@@ -271,27 +286,139 @@ func (r *GitOpsClusterReconciler) ensureClusterClientCertificate(
 		return fmt.Errorf("failed to load CA certificate: %w", err)
 	}
 
-	// Create TargetRotation for the cluster client certificate
-	// Use the cluster name as the Common Name for the client certificate
-	clientRotation := &certrotation.TargetRotation{
-		Namespace: namespace,
-		Name:      secretName,
-		Validity:  TargetCertValidity,
-		HostNames: func() []string {
-			// For client certificates, we use the cluster name as CN
-			return []string{clusterName}
-		}(),
-		Lister: secretLister,
-		Client: kubeClient.CoreV1(),
+	existingSecret, err := secretLister.Secrets(namespace).Get(secretName)
+	if err != nil && !k8serrors.IsNotFound(err) {
+		return err
+	}
+	if err == nil && hasValidClusterClientCertificate(existingSecret, caBundleCerts, clusterName) {
+		return nil
 	}
 
-	// Ensure the client certificate
-	if err := clientRotation.EnsureTargetCertKeyPair(signingCertKeyPair, caBundleCerts); err != nil {
-		return fmt.Errorf("failed to ensure cluster client certificate: %w", err)
+	var signerCerts []*x509.Certificate
+	if signingCertKeyPair != nil && signingCertKeyPair.Config != nil {
+		signerCerts = signingCertKeyPair.Config.Certs
+	}
+	targetValidity, err := clusterClientCertificateTargetValidity(signerCerts, clusterName, time.Now())
+	if err != nil {
+		return err
+	}
+
+	clientCertConfig, err := signingCertKeyPair.MakeClientCertificateForDuration(&user.DefaultInfo{Name: clusterName}, targetValidity)
+	if err != nil {
+		return fmt.Errorf("failed to create cluster client certificate: %w", err)
+	}
+	clientCertPEM, clientKeyPEM, err := clientCertConfig.GetPEMBytes()
+	if err != nil {
+		return fmt.Errorf("failed to encode cluster client certificate: %w", err)
+	}
+
+	targetSecret, err := kubeClient.CoreV1().Secrets(namespace).Get(ctx, secretName, metav1.GetOptions{})
+	if k8serrors.IsNotFound(err) {
+		targetSecret = &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace: namespace,
+				Name:      secretName,
+			},
+			Type: corev1.SecretTypeTLS,
+		}
+	} else if err != nil {
+		return fmt.Errorf("failed to get cluster client certificate secret: %w", err)
+	}
+
+	targetSecret.Type = corev1.SecretTypeTLS
+	targetSecret.Data = map[string][]byte{
+		"tls.crt": clientCertPEM,
+		"tls.key": clientKeyPEM,
+	}
+
+	if targetSecret.ResourceVersion == "" {
+		if _, err := kubeClient.CoreV1().Secrets(namespace).Create(ctx, targetSecret, metav1.CreateOptions{}); err != nil {
+			return fmt.Errorf("failed to create cluster client certificate secret: %w", err)
+		}
+	} else {
+		if _, err := kubeClient.CoreV1().Secrets(namespace).Update(ctx, targetSecret, metav1.UpdateOptions{}); err != nil {
+			return fmt.Errorf("failed to update cluster client certificate secret: %w", err)
+		}
 	}
 
 	klog.V(2).InfoS("Successfully ensured cluster client certificate",
 		"namespace", namespace, "cluster", clusterName, "secret", secretName)
 
 	return nil
+}
+
+// clusterClientCertificateTargetValidity returns a client certificate validity that does not outlive its signer.
+func clusterClientCertificateTargetValidity(signerCerts []*x509.Certificate, clusterName string, now time.Time) (time.Duration, error) {
+	if len(signerCerts) == 0 || signerCerts[0] == nil {
+		return 0, fmt.Errorf("cannot create cluster client certificate for %q: signing certificate is missing", clusterName)
+	}
+
+	targetValidity := TargetCertValidity
+	signerNotAfter := signerCerts[0].NotAfter
+	remainingSignerValidity := signerNotAfter.Sub(now.Add(clusterClientCertificateSignerSkew))
+	if remainingSignerValidity <= 0 {
+		return 0, fmt.Errorf("cannot create cluster client certificate for %q: signing certificate expired or expires too soon at %s", clusterName, signerNotAfter.Format(time.RFC3339))
+	}
+	if remainingSignerValidity < targetValidity {
+		targetValidity = remainingSignerValidity
+	}
+
+	return targetValidity, nil
+}
+
+// hasValidClusterClientCertificate checks whether the secret contains a usable client certificate and key pair.
+func hasValidClusterClientCertificate(secret *corev1.Secret, caBundleCerts []*x509.Certificate, clusterName string) bool {
+	certData := secret.Data["tls.crt"]
+	if len(certData) == 0 {
+		return false
+	}
+	keyData := secret.Data["tls.key"]
+	if len(keyData) == 0 {
+		return false
+	}
+	if _, err := tls.X509KeyPair(certData, keyData); err != nil {
+		return false
+	}
+
+	certificates, err := cert.ParseCertsPEM(certData)
+	if err != nil || len(certificates) == 0 {
+		return false
+	}
+
+	certificate := certificates[0]
+	if certificate.Subject.CommonName != clusterName {
+		return false
+	}
+	if time.Now().After(certificate.NotAfter) {
+		return false
+	}
+	if time.Now().After(certificate.NotAfter.Add(-certificate.NotAfter.Sub(certificate.NotBefore) / 5)) {
+		return false
+	}
+	if !hasExtKeyUsage(certificate, x509.ExtKeyUsageClientAuth) {
+		return false
+	}
+
+	for _, caCert := range caBundleCerts {
+		if certificate.Issuer.CommonName != caCert.Subject.CommonName {
+			continue
+		}
+		if err := certificate.CheckSignatureFrom(caCert); err != nil {
+			continue
+		}
+		return true
+	}
+
+	return false
+}
+
+// hasExtKeyUsage reports whether the certificate contains the requested extended key usage.
+func hasExtKeyUsage(certificate *x509.Certificate, usage x509.ExtKeyUsage) bool {
+	for _, certificateUsage := range certificate.ExtKeyUsage {
+		if certificateUsage == usage {
+			return true
+		}
+	}
+
+	return false
 }
