@@ -9,6 +9,7 @@ on:
 env:
   # Common versions
   GO_VERSION: '1.26'
+  KUBERNETES_VERSION: 'v1.24.0'
   GO_REQUIRED_MIN_VERSION: ''
   GOPATH: '/home/runner/work/argocd-pull-integration/argocd-pull-integration/go'
 
@@ -22,13 +23,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           fetch-depth: 1
           path: go/src/open-cluster-management.io/argocd-pull-integration
 
       - name: install Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version: ${{ env.GO_VERSION }}
 
@@ -40,13 +41,13 @@ jobs:
 
       # Install Helm so make test-e2e can run helm commands
       - name: Set up Helm
-        uses: azure/setup-helm@v4
+        uses: azure/setup-helm@1a275c3b69536ee54be43f2070a358922e12c8d4 # v4
         with:
           version: v3.15.2  # pin for reproducibility; omit to get latest v3
 
       # Optional: pin kubectl to match your kind/k8s version
       - name: Set up kubectl
-        uses: azure/setup-kubectl@v4
+        uses: azure/setup-kubectl@776406bce94f63e41d621b960d78ee25c8b76ede # v4
         with:
           version: v1.29.0
 
@@ -54,16 +55,10 @@ jobs:
         run: make build-images
 
       - name: setup kind (cluster1)
-        uses: engineerd/setup-kind@v0.5.0
-        with:
-          version: v0.14.0
-          name: cluster1
+        run: kind create cluster --name cluster1 --image kindest/node:${{ env.KUBERNETES_VERSION }} --wait 300s
 
       - name: setup kind (hub)
-        uses: engineerd/setup-kind@v0.5.0
-        with:
-          version: v0.14.0
-          name: hub
+        run: kind create cluster --name hub --image kindest/node:${{ env.KUBERNETES_VERSION }} --wait 300s
 
       - name: Load image on the nodes of the hub
         run: |
@@ -83,13 +78,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           fetch-depth: 1
           path: go/src/open-cluster-management.io/argocd-pull-integration
 
       - name: install Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version: ${{ env.GO_VERSION }}
 
@@ -100,12 +95,12 @@ jobs:
         run: go install github.com/openshift/imagebuilder/cmd/imagebuilder@v1.2.3
 
       - name: Set up Helm
-        uses: azure/setup-helm@v4
+        uses: azure/setup-helm@1a275c3b69536ee54be43f2070a358922e12c8d4 # v4
         with:
           version: v3.15.2
 
       - name: Set up kubectl
-        uses: azure/setup-kubectl@v4
+        uses: azure/setup-kubectl@776406bce94f63e41d621b960d78ee25c8b76ede # v4
         with:
           version: v1.29.0
 
@@ -113,16 +108,10 @@ jobs:
         run: make build-images
 
       - name: setup kind (cluster1)
-        uses: engineerd/setup-kind@v0.5.0
-        with:
-          version: v0.14.0
-          name: cluster1
+        run: kind create cluster --name cluster1 --image kindest/node:${{ env.KUBERNETES_VERSION }} --wait 300s
 
       - name: setup kind (hub)
-        uses: engineerd/setup-kind@v0.5.0
-        with:
-          version: v0.14.0
-          name: hub
+        run: kind create cluster --name hub --image kindest/node:${{ env.KUBERNETES_VERSION }} --wait 300s
 
       - name: Load image on the nodes of the hub
         run: |
@@ -142,13 +131,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           fetch-depth: 1
           path: go/src/open-cluster-management.io/argocd-pull-integration
 
       - name: install Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version: ${{ env.GO_VERSION }}
 
@@ -159,12 +148,12 @@ jobs:
         run: go install github.com/openshift/imagebuilder/cmd/imagebuilder@v1.2.3
 
       - name: Set up Helm
-        uses: azure/setup-helm@v4
+        uses: azure/setup-helm@1a275c3b69536ee54be43f2070a358922e12c8d4 # v4
         with:
           version: v3.15.2
 
       - name: Set up kubectl
-        uses: azure/setup-kubectl@v4
+        uses: azure/setup-kubectl@776406bce94f63e41d621b960d78ee25c8b76ede # v4
         with:
           version: v1.29.0
 
@@ -172,16 +161,10 @@ jobs:
         run: make build-images
 
       - name: setup kind (cluster1)
-        uses: engineerd/setup-kind@v0.5.0
-        with:
-          version: v0.14.0
-          name: cluster1
+        run: kind create cluster --name cluster1 --image kindest/node:${{ env.KUBERNETES_VERSION }} --wait 300s
 
       - name: setup kind (hub)
-        uses: engineerd/setup-kind@v0.5.0
-        with:
-          version: v0.14.0
-          name: hub
+        run: kind create cluster --name hub --image kindest/node:${{ env.KUBERNETES_VERSION }} --wait 300s
 
       - name: Load image on the nodes of the hub
         run: |

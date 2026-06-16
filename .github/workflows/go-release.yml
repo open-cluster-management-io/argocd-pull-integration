@@ -18,7 +18,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           fetch-depth: 1
       - name: get release version
@@ -41,11 +41,11 @@ jobs:
         arch: [ amd64 ]
     steps:
       - name: checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           fetch-depth: 1
       - name: install Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version: ${{ env.GO_VERSION }}
       - name: install imagebuilder
@@ -67,7 +67,7 @@ jobs:
     needs: [ env, images ]
     steps:
       - name: checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           fetch-depth: 1
       - name: create
@@ -88,11 +88,11 @@ jobs:
     needs: [ env, image-manifest ]
     steps:
       - name: checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           fetch-depth: 1
       - name: setup helm
-        uses: azure/setup-helm@v4
+        uses: azure/setup-helm@1a275c3b69536ee54be43f2070a358922e12c8d4 # v4
       - name: prepare advanced chart for release
         run: |
           # Update Chart.yaml appVersion to match release version (without 'v' prefix)
@@ -142,7 +142,7 @@ jobs:
           echo "- **Advanced Pull Model Chart**: \`${{ env.CHART_NAME }}-${{ needs.env.outputs.TRIMMED_RELEASE_VERSION }}.tgz\`" >> /home/runner/work/changelog.txt
           echo "- **Basic Pull Model Chart**: \`${{ env.BASIC_CHART_NAME }}-${{ needs.env.outputs.TRIMMED_RELEASE_VERSION }}.tgz\`" >> /home/runner/work/changelog.txt
       - name: publish release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
