@@ -17,11 +17,16 @@ limitations under the License.
 package controller
 
 import (
+	"crypto/x509"
 	"encoding/json"
 	"testing"
+	"time"
 
+	"github.com/openshift/library-go/pkg/crypto"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/apiserver/pkg/authentication/user"
 
 	clusterv1 "open-cluster-management.io/api/cluster/v1"
 )
@@ -36,9 +41,12 @@ func TestClusterConfig(t *testing.T) {
 			config: ClusterConfig{
 				Username: "cluster1",
 				Password: "cluster1",
-				CertData: []byte("cert-data"),
-				KeyData:  []byte("key-data"),
-				CAData:   []byte("ca-data"),
+				TLSClientConfig: &TLSClientConfig{
+					Insecure: false,
+					CertData: []byte("cert-data"),
+					KeyData:  []byte("key-data"),
+					CAData:   []byte("ca-data"),
+				},
 			},
 		},
 		{
@@ -234,9 +242,12 @@ func TestClusterConfigJSON(t *testing.T) {
 	config := ClusterConfig{
 		Username: "test-cluster",
 		Password: "test-cluster",
-		CertData: []byte("-----BEGIN CERTIFICATE-----\ntest-cert\n-----END CERTIFICATE-----"),
-		KeyData:  []byte("-----BEGIN PRIVATE KEY-----\ntest-key\n-----END PRIVATE KEY-----"),
-		CAData:   []byte("-----BEGIN CERTIFICATE-----\ntest-ca\n-----END CERTIFICATE-----"),
+		TLSClientConfig: &TLSClientConfig{
+			Insecure: false,
+			CertData: []byte("-----BEGIN CERTIFICATE-----\ntest-cert\n-----END CERTIFICATE-----"),
+			KeyData:  []byte("-----BEGIN PRIVATE KEY-----\ntest-key\n-----END PRIVATE KEY-----"),
+			CAData:   []byte("-----BEGIN CERTIFICATE-----\ntest-ca\n-----END CERTIFICATE-----"),
+		},
 	}
 
 	// Marshal to JSON
@@ -259,13 +270,202 @@ func TestClusterConfigJSON(t *testing.T) {
 	if decoded.Password != config.Password {
 		t.Errorf("Password = %v, want %v", decoded.Password, config.Password)
 	}
-	if string(decoded.CertData) != string(config.CertData) {
+	if decoded.TLSClientConfig == nil {
+		t.Fatalf("TLSClientConfig is nil")
+	}
+	if decoded.TLSClientConfig.Insecure != config.TLSClientConfig.Insecure {
+		t.Errorf("TLSClientConfig.Insecure = %v, want %v", decoded.TLSClientConfig.Insecure, config.TLSClientConfig.Insecure)
+	}
+	if string(decoded.TLSClientConfig.CertData) != string(config.TLSClientConfig.CertData) {
 		t.Errorf("CertData mismatch")
 	}
-	if string(decoded.KeyData) != string(config.KeyData) {
+	if string(decoded.TLSClientConfig.KeyData) != string(config.TLSClientConfig.KeyData) {
 		t.Errorf("KeyData mismatch")
 	}
-	if string(decoded.CAData) != string(config.CAData) {
+	if string(decoded.TLSClientConfig.CAData) != string(config.TLSClientConfig.CAData) {
 		t.Errorf("CAData mismatch")
+	}
+}
+
+func TestClusterConfigUsesArgoCDTLSClientConfig(t *testing.T) {
+	config := ClusterConfig{
+		Username: "test-cluster",
+		Password: "test-cluster",
+		TLSClientConfig: &TLSClientConfig{
+			Insecure: false,
+			CertData: []byte("cert-data"),
+			KeyData:  []byte("key-data"),
+			CAData:   []byte("ca-data"),
+		},
+	}
+
+	data, err := json.Marshal(config)
+	if err != nil {
+		t.Fatalf("Failed to marshal config: %v", err)
+	}
+
+	var raw map[string]any
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatalf("Failed to unmarshal config map: %v", err)
+	}
+
+	if _, ok := raw["tlsClientConfig"]; !ok {
+		t.Fatalf("Expected tlsClientConfig in cluster config")
+	}
+
+	for _, key := range []string{"certData", "keyData", "caData"} {
+		if _, ok := raw[key]; ok {
+			t.Fatalf("Expected %s to be nested under tlsClientConfig, but found it at the top level", key)
+		}
+	}
+
+	tlsClientConfig, ok := raw["tlsClientConfig"].(map[string]any)
+	if !ok {
+		t.Fatalf("tlsClientConfig has unexpected type %T", raw["tlsClientConfig"])
+	}
+
+	for _, key := range []string{"certData", "keyData", "caData"} {
+		if _, ok := tlsClientConfig[key]; !ok {
+			t.Fatalf("Expected %s under tlsClientConfig", key)
+		}
+	}
+
+	if insecure, ok := tlsClientConfig["insecure"].(bool); !ok || insecure {
+		t.Fatalf("Expected tlsClientConfig.insecure to be false, got %v", tlsClientConfig["insecure"])
+	}
+}
+
+func TestHasValidClusterClientCertificate(t *testing.T) {
+	caConfig, err := crypto.MakeSelfSignedCAConfigForDuration("test-ca", time.Hour)
+	if err != nil {
+		t.Fatalf("Failed to create CA config: %v", err)
+	}
+	caCertPEM, caKeyPEM, err := caConfig.GetPEMBytes()
+	if err != nil {
+		t.Fatalf("Failed to encode CA config: %v", err)
+	}
+	ca, err := crypto.GetCAFromBytes(caCertPEM, caKeyPEM)
+	if err != nil {
+		t.Fatalf("Failed to load CA: %v", err)
+	}
+
+	clientCertConfig, err := ca.MakeClientCertificateForDuration(&user.DefaultInfo{Name: "test-cluster"}, time.Hour)
+	if err != nil {
+		t.Fatalf("Failed to create client certificate: %v", err)
+	}
+	clientCertPEM, clientKeyPEM, err := clientCertConfig.GetPEMBytes()
+	if err != nil {
+		t.Fatalf("Failed to encode client certificate: %v", err)
+	}
+
+	serverCertConfig, err := ca.MakeServerCertForDuration(sets.New[string]("test-cluster"), time.Hour)
+	if err != nil {
+		t.Fatalf("Failed to create server certificate: %v", err)
+	}
+	serverCertPEM, serverKeyPEM, err := serverCertConfig.GetPEMBytes()
+	if err != nil {
+		t.Fatalf("Failed to encode server certificate: %v", err)
+	}
+
+	tests := []struct {
+		name     string
+		certPEM  []byte
+		keyPEM   []byte
+		wantGood bool
+	}{
+		{
+			name:     "accepts client auth certificate",
+			certPEM:  clientCertPEM,
+			keyPEM:   clientKeyPEM,
+			wantGood: true,
+		},
+		{
+			name:     "rejects server auth certificate",
+			certPEM:  serverCertPEM,
+			keyPEM:   serverKeyPEM,
+			wantGood: false,
+		},
+		{
+			name:     "rejects missing private key",
+			certPEM:  clientCertPEM,
+			wantGood: false,
+		},
+		{
+			name:     "rejects invalid private key",
+			certPEM:  clientCertPEM,
+			keyPEM:   []byte("invalid private key"),
+			wantGood: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			secret := &corev1.Secret{
+				Data: map[string][]byte{
+					"tls.crt": tt.certPEM,
+					"tls.key": tt.keyPEM,
+				},
+			}
+
+			gotGood := hasValidClusterClientCertificate(secret, caConfig.Certs, "test-cluster")
+			if gotGood != tt.wantGood {
+				t.Fatalf("hasValidClusterClientCertificate() = %v, want %v", gotGood, tt.wantGood)
+			}
+		})
+	}
+}
+
+func TestClusterClientCertificateTargetValidity(t *testing.T) {
+	now := time.Now()
+
+	tests := []struct {
+		name         string
+		signerCerts  []*x509.Certificate
+		wantValidity time.Duration
+		wantErr      bool
+	}{
+		{
+			name: "uses target validity when signer is valid longer",
+			signerCerts: []*x509.Certificate{
+				{NotAfter: now.Add(TargetCertValidity + time.Hour)},
+			},
+			wantValidity: TargetCertValidity,
+		},
+		{
+			name: "clamps to remaining signer validity",
+			signerCerts: []*x509.Certificate{
+				{NotAfter: now.Add(time.Hour)},
+			},
+			wantValidity: time.Hour - clusterClientCertificateSignerSkew,
+		},
+		{
+			name: "rejects signer expiring inside safety window",
+			signerCerts: []*x509.Certificate{
+				{NotAfter: now.Add(time.Second)},
+			},
+			wantErr: true,
+		},
+		{
+			name:    "rejects missing signer certificate",
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotValidity, err := clusterClientCertificateTargetValidity(tt.signerCerts, "test-cluster", now)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("Expected error, got nil")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Expected no error, got %v", err)
+			}
+			if gotValidity != tt.wantValidity {
+				t.Fatalf("target validity = %v, want %v", gotValidity, tt.wantValidity)
+			}
+		})
 	}
 }
