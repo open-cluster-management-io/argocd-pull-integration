@@ -19,6 +19,7 @@ package v1alpha1
 import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 )
 
 // GitOpsClusterSpec defines the desired state of GitOpsCluster
@@ -54,6 +55,21 @@ type ArgoCDAgentAddonSpec struct {
 	// AgentNamespace is the namespace where the ArgoCD agent (ArgoCD CR) will be deployed on the managed cluster
 	// +optional
 	AgentNamespace string `json:"agentNamespace,omitempty"`
+
+	// ArgoCDCRManifestWork allows providing a custom ArgoCD CR to deploy to managed clusters via ManifestWork.
+	// When set, the controller wraps these manifests in a ManifestWork and delivers them to each managed cluster
+	// selected by the placement. The manifests must contain at least one ArgoCD CR (apiVersion: argoproj.io/v1beta1, kind: ArgoCD).
+	// When nil, the controller auto-generates a default ArgoCD CR configured for agent mode.
+	// +optional
+	ArgoCDCRManifestWork *ArgoCDCRManifestWorkSpec `json:"argoCDCRManifestWork,omitempty"`
+}
+
+// ArgoCDCRManifestWorkSpec defines the ArgoCD CR manifests to deliver to managed clusters
+type ArgoCDCRManifestWorkSpec struct {
+	// Manifests is the list of raw Kubernetes manifests to deploy via ManifestWork.
+	// Must contain at least one ArgoCD CR (apiVersion: argoproj.io/v1beta1, kind: ArgoCD).
+	// +kubebuilder:validation:MinItems=1
+	Manifests []runtime.RawExtension `json:"manifests"`
 }
 
 // GitOpsClusterStatus defines the observed state of GitOpsCluster
@@ -91,6 +107,9 @@ const (
 
 	// ConditionManifestWorkCreated indicates that ManifestWork for CA has been created
 	ConditionManifestWorkCreated = "ManifestWorkCreated"
+
+	// ConditionArgoCDCRDelivered indicates that the ArgoCD CR ManifestWork has been created
+	ConditionArgoCDCRDelivered = "ArgoCDCRDelivered"
 
 	// ConditionAddonConfigured indicates that addon config and ManagedClusterAddon are configured
 	ConditionAddonConfigured = "AddonConfigured"

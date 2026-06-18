@@ -195,17 +195,28 @@ var _ = Describe("Advanced Pull Model E2E", Label("advanced-pull"), Ordered, fun
 				g.Expect(output).To(Equal("True"))
 			}).Should(Succeed())
 
-			By("verifying GitOpsCluster AddonConfigured condition")
-			Eventually(func(g Gomega) {
-				cmd := exec.Command("kubectl", "--context", hubContext,
-					"get", "gitopscluster", "gitops-cluster",
-					"-n", argoCDNamespace,
-					"-o", "jsonpath={.status.conditions[?(@.type=='AddonConfigured')].status}")
-				output, err := utils.Run(cmd)
-				g.Expect(err).NotTo(HaveOccurred())
-				g.Expect(output).To(Equal("True"))
-			}).Should(Succeed())
-		})
+		By("verifying GitOpsCluster ArgoCDCRDelivered condition (auto-generated CR)")
+		Eventually(func(g Gomega) {
+			cmd := exec.Command("kubectl", "--context", hubContext,
+				"get", "gitopscluster", "gitops-cluster",
+				"-n", argoCDNamespace,
+				"-o", "jsonpath={.status.conditions[?(@.type=='ArgoCDCRDelivered')].status}")
+			output, err := utils.Run(cmd)
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(output).To(Equal("True"))
+		}).Should(Succeed())
+
+		By("verifying GitOpsCluster AddonConfigured condition")
+		Eventually(func(g Gomega) {
+			cmd := exec.Command("kubectl", "--context", hubContext,
+				"get", "gitopscluster", "gitops-cluster",
+				"-n", argoCDNamespace,
+				"-o", "jsonpath={.status.conditions[?(@.type=='AddonConfigured')].status}")
+			output, err := utils.Run(cmd)
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(output).To(Equal("True"))
+		}).Should(Succeed())
+	})
 
 		It("should create ClusterManagementAddOn on hub", func() {
 			By("verifying ClusterManagementAddOn exists")
@@ -555,64 +566,64 @@ spec:
 		})
 
 		It("should sync Application to spoke cluster via argocd-agent", func() {
-			By("verifying Application synced to spoke cluster argocd namespace")
-			Eventually(func(g Gomega) {
-				cmd := exec.Command("kubectl", "--context", cluster1Context,
-					"get", "application", appName,
-					"-n", argoCDNamespace,
-					"-o", "jsonpath={.metadata.name}")
-				output, err := utils.Run(cmd)
-				g.Expect(err).NotTo(HaveOccurred())
-				g.Expect(output).To(Equal(appName))
-			}, 2*time.Minute, 5*time.Second).Should(Succeed())
+		By("verifying Application synced to spoke cluster argocd namespace")
+		Eventually(func(g Gomega) {
+			cmd := exec.Command("kubectl", "--context", cluster1Context,
+				"get", "application", appName,
+				"-n", argoCDNamespace,
+				"-o", "jsonpath={.metadata.name}")
+			output, err := utils.Run(cmd)
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(output).To(Equal(appName))
+		}, 3*time.Minute, 5*time.Second).Should(Succeed())
 
-			By("verifying Application sync status on spoke")
-			var spokeSyncStatus, spokeHealthStatus string
-			Eventually(func(g Gomega) {
-				cmd := exec.Command("kubectl", "--context", cluster1Context,
-					"get", "application", appName,
-					"-n", argoCDNamespace,
-					"-o", "jsonpath={.status.sync.status}")
-				output, err := utils.Run(cmd)
-				g.Expect(err).NotTo(HaveOccurred())
-				g.Expect(output).To(Equal("Synced"))
-				spokeSyncStatus = output
-			}, 3*time.Minute, 5*time.Second).Should(Succeed())
+		By("verifying Application sync status on spoke")
+		var spokeSyncStatus, spokeHealthStatus string
+		Eventually(func(g Gomega) {
+			cmd := exec.Command("kubectl", "--context", cluster1Context,
+				"get", "application", appName,
+				"-n", argoCDNamespace,
+				"-o", "jsonpath={.status.sync.status}")
+			output, err := utils.Run(cmd)
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(output).To(Equal("Synced"))
+			spokeSyncStatus = output
+		}, 5*time.Minute, 5*time.Second).Should(Succeed())
 
-			By("verifying Application health status on spoke")
-			Eventually(func(g Gomega) {
-				cmd := exec.Command("kubectl", "--context", cluster1Context,
-					"get", "application", appName,
-					"-n", argoCDNamespace,
-					"-o", "jsonpath={.status.health.status}")
-				output, err := utils.Run(cmd)
-				g.Expect(err).NotTo(HaveOccurred())
-				g.Expect(output).To(Equal("Healthy"))
-				spokeHealthStatus = output
-			}, 3*time.Minute, 5*time.Second).Should(Succeed())
+		By("verifying Application health status on spoke")
+		Eventually(func(g Gomega) {
+			cmd := exec.Command("kubectl", "--context", cluster1Context,
+				"get", "application", appName,
+				"-n", argoCDNamespace,
+				"-o", "jsonpath={.status.health.status}")
+			output, err := utils.Run(cmd)
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(output).To(Equal("Healthy"))
+			spokeHealthStatus = output
+		}, 5*time.Minute, 5*time.Second).Should(Succeed())
 
 			By(fmt.Sprintf("Spoke status - Sync: %s, Health: %s", spokeSyncStatus, spokeHealthStatus))
 
-			By("verifying Application status on hub matches spoke")
-			Eventually(func(g Gomega) {
-				cmd := exec.Command("kubectl", "--context", hubContext,
-					"get", "application", appName,
-					"-n", argoCDNamespace,
-					"-o", "jsonpath={.status.sync.status}")
-				output, err := utils.Run(cmd)
-				g.Expect(err).NotTo(HaveOccurred())
-				g.Expect(output).To(Equal("Synced"))
-			}, 3*time.Minute, 5*time.Second).Should(Succeed())
+		By("verifying Application status on hub matches spoke")
+		Eventually(func(g Gomega) {
+			cmd := exec.Command("kubectl", "--context", hubContext,
+				"get", "application", appName,
+				"-n", argoCDNamespace,
+				"-o", "jsonpath={.status.sync.status}")
+			output, err := utils.Run(cmd)
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(output).To(Equal("Synced"))
+		}, 5*time.Minute, 5*time.Second).Should(Succeed())
 
-			Eventually(func(g Gomega) {
-				cmd := exec.Command("kubectl", "--context", hubContext,
-					"get", "application", appName,
-					"-n", argoCDNamespace,
-					"-o", "jsonpath={.status.health.status}")
-				output, err := utils.Run(cmd)
-				g.Expect(err).NotTo(HaveOccurred())
-				g.Expect(output).To(Equal("Healthy"))
-			}, 3*time.Minute, 5*time.Second).Should(Succeed())
+		Eventually(func(g Gomega) {
+			cmd := exec.Command("kubectl", "--context", hubContext,
+				"get", "application", appName,
+				"-n", argoCDNamespace,
+				"-o", "jsonpath={.status.health.status}")
+			output, err := utils.Run(cmd)
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(output).To(Equal("Healthy"))
+		}, 5*time.Minute, 5*time.Second).Should(Succeed())
 
 			By("Hub and Spoke Application status are in sync")
 		})

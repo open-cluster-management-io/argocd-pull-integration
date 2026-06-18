@@ -31,6 +31,11 @@ gitOpsCluster:
   argoCDAgentAddon:
     agentNamespace: ""
     operatorNamespace: ""
+  # When customArgoCDCR is enabled, a user-provided ArgoCD CR is included in the
+  # GitOpsCluster spec.argoCDAgentAddon.argoCDCRManifestWork field. The controller
+  # will deliver this exact CR via ManifestWork instead of auto-generating a default.
+  customArgoCDCR:
+    enabled: false
 
 # Controller settings  
 controller:

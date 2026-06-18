@@ -461,3 +461,39 @@ spec:
           defaultMode: 420
           optional: true
           secretName: webhook-server-cert
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: open-cluster-management:argocd-agent:work-agent-argocd
+  labels:
+    open-cluster-management.io/aggregate-to-work: "true"
+    app.kubernetes.io/managed-by: argocd-agent-addon
+rules:
+- apiGroups:
+  - argoproj.io
+  resources:
+  - argocds
+  verbs:
+  - get
+  - list
+  - watch
+  - create
+  - update
+  - patch
+  - delete
+- apiGroups:
+  - argoproj.io
+  resources:
+  - argocds/status
+  verbs:
+  - get
+  - update
+  - patch
+- apiGroups:
+  - argoproj.io
+  resources:
+  - argocds/finalizers
+  verbs:
+  - update
+  - patch

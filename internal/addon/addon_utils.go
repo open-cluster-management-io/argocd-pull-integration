@@ -68,20 +68,7 @@ func (r *ArgoCDAgentAddonReconciler) templateAndApplyChart(ctx context.Context, 
 		return fmt.Errorf("failed to parse operator image: %w", err)
 	}
 
-	// Set up global values for argocd-agent-addon chart
-	argocdAgent := map[string]interface{}{
-		"mode": r.ArgoCDAgentMode,
-	}
-
-	if r.ArgoCDAgentServerAddress != "" {
-		argocdAgent["serverAddress"] = r.ArgoCDAgentServerAddress
-	}
-	if r.ArgoCDAgentServerPort != "" {
-		argocdAgent["serverPort"] = r.ArgoCDAgentServerPort
-	}
-
 	global := map[string]interface{}{
-		"argoCDAgent":             argocdAgent,
 		"argoCDOperatorNamespace": operatorNamespace,
 		"argoCDNamespace":         argoCDNamespace,
 	}

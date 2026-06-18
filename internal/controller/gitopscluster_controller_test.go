@@ -288,7 +288,7 @@ func TestInitializeConditions(t *testing.T) {
 		{
 			name:               "initializes all conditions when none exist",
 			existingConditions: []metav1.Condition{},
-			wantConditionCount: 12, // All 12 conditions should be initialized
+			wantConditionCount: 13, // All 13 conditions should be initialized
 		},
 		{
 			name: "keeps existing conditions and adds missing ones",
@@ -304,7 +304,7 @@ func TestInitializeConditions(t *testing.T) {
 					Reason: appsv1alpha1.ReasonSuccess,
 				},
 			},
-			wantConditionCount: 12, // Should add 10 more conditions
+			wantConditionCount: 13, // Should add 11 more conditions
 		},
 		{
 			name: "does not modify when all conditions exist",
@@ -320,9 +320,10 @@ func TestInitializeConditions(t *testing.T) {
 				{Type: appsv1alpha1.ConditionPlacementEvaluated, Status: metav1.ConditionTrue, Reason: appsv1alpha1.ReasonSuccess},
 				{Type: appsv1alpha1.ConditionClustersImported, Status: metav1.ConditionTrue, Reason: appsv1alpha1.ReasonSuccess},
 				{Type: appsv1alpha1.ConditionManifestWorkCreated, Status: metav1.ConditionTrue, Reason: appsv1alpha1.ReasonSuccess},
+				{Type: appsv1alpha1.ConditionArgoCDCRDelivered, Status: metav1.ConditionTrue, Reason: appsv1alpha1.ReasonSuccess},
 				{Type: appsv1alpha1.ConditionAddonConfigured, Status: metav1.ConditionTrue, Reason: appsv1alpha1.ReasonSuccess},
 			},
-			wantConditionCount: 12, // Should keep all 12 (RemovedClustersCleanedUp is not initialized by default)
+			wantConditionCount: 13, // Should keep all 13 (RemovedClustersCleanedUp is not initialized by default)
 		},
 	}
 

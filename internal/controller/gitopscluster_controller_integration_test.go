@@ -636,6 +636,7 @@ func TestConditionInitializationOnReconcile(t *testing.T) {
 		appsv1alpha1.ConditionPlacementEvaluated,
 		appsv1alpha1.ConditionClustersImported,
 		appsv1alpha1.ConditionManifestWorkCreated,
+		appsv1alpha1.ConditionArgoCDCRDelivered,
 		appsv1alpha1.ConditionAddonConfigured,
 	}
 

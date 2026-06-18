@@ -1,0 +1,19 @@
+# WARNING: This is a permissive demo AppProject. For production, scope destinations,
+# sourceRepos, clusterResourceWhitelist, and sourceNamespaces to your specific needs.
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: default
+  namespace: argocd
+spec:
+  clusterResourceWhitelist:
+  - group: '*'
+    kind: '*'
+  destinations:
+  - namespace: '*'
+    server: '*'
+    name: '*'
+  sourceRepos:
+  - '*'
+  sourceNamespaces:
+  - '*'
