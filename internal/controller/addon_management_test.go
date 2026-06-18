@@ -245,6 +245,76 @@ func TestEnsureAddOnDeploymentConfig(t *testing.T) {
 	}
 }
 
+func TestEnsureAddOnDeploymentConfigReconcilesManagedVariables(t *testing.T) {
+	s := runtime.NewScheme()
+	_ = scheme.AddToScheme(s)
+	_ = addonv1alpha1.AddToScheme(s)
+
+	clusterNamespace := "cluster1"
+	existingConfig := &addonv1alpha1.AddOnDeploymentConfig{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      ArgoCDAgentAddonConfigName,
+			Namespace: clusterNamespace,
+		},
+		Spec: addonv1alpha1.AddOnDeploymentConfigSpec{
+			CustomizedVariables: []addonv1alpha1.CustomizedVariable{
+				{
+					Name:  "ARGOCD_AGENT_MODE",
+					Value: "autonomous",
+				},
+				{
+					Name:  "ARGOCD_RESOURCE_EXCLUSIONS",
+					Value: "- apiGroups:\n  - old.example.io\n  kinds:\n  - OldKind",
+				},
+				{
+					Name:  "EXTERNAL_VARIABLE",
+					Value: "preserved",
+				},
+			},
+		},
+	}
+
+	r := &GitOpsClusterReconciler{
+		Client: fake.NewClientBuilder().WithScheme(s).WithRuntimeObjects(existingConfig).Build(),
+		Scheme: s,
+	}
+
+	variables := map[string]string{
+		"ARGOCD_AGENT_SERVER_ADDRESS": "argocd-server.argocd.svc",
+		"ARGOCD_AGENT_SERVER_PORT":    "8080",
+		"ARGOCD_AGENT_MODE":           "managed",
+	}
+
+	err := r.EnsureAddOnDeploymentConfig(context.Background(), clusterNamespace, variables)
+	if err != nil {
+		t.Fatalf("EnsureAddOnDeploymentConfig() failed: %v", err)
+	}
+
+	config := &addonv1alpha1.AddOnDeploymentConfig{}
+	err = r.Get(context.Background(), types.NamespacedName{
+		Name:      ArgoCDAgentAddonConfigName,
+		Namespace: clusterNamespace,
+	}, config)
+	if err != nil {
+		t.Fatalf("Failed to get AddOnDeploymentConfig: %v", err)
+	}
+
+	configVars := make(map[string]string)
+	for _, variable := range config.Spec.CustomizedVariables {
+		configVars[variable.Name] = variable.Value
+	}
+
+	if configVars["ARGOCD_AGENT_MODE"] != "managed" {
+		t.Errorf("ARGOCD_AGENT_MODE = %q, want managed", configVars["ARGOCD_AGENT_MODE"])
+	}
+	if _, exists := configVars["ARGOCD_RESOURCE_EXCLUSIONS"]; exists {
+		t.Error("ARGOCD_RESOURCE_EXCLUSIONS should be removed when it is not present in desired variables")
+	}
+	if configVars["EXTERNAL_VARIABLE"] != "preserved" {
+		t.Errorf("EXTERNAL_VARIABLE = %q, want preserved", configVars["EXTERNAL_VARIABLE"])
+	}
+}
+
 func TestEnsureAddonConfig(t *testing.T) {
 	s := runtime.NewScheme()
 	_ = scheme.AddToScheme(s)

@@ -39,6 +39,9 @@ func TestGitOpsClusterSpec(t *testing.T) {
 					PrincipalServerAddress: "argocd-server.argocd.svc",
 					PrincipalServerPort:    "8080",
 					Mode:                   "managed",
+					ManagedArgoCD: &ManagedArgoCDSpec{
+						ResourceExclusions: "- apiGroups:\n  - coordination.k8s.io\n  kinds:\n  - Lease",
+					},
 				},
 			},
 		},
@@ -86,6 +89,9 @@ func TestArgoCDAgentAddonSpec(t *testing.T) {
 				PrincipalServerAddress: "argocd-server.argocd.svc",
 				PrincipalServerPort:    "8080",
 				Mode:                   "managed",
+				ManagedArgoCD: &ManagedArgoCDSpec{
+					ResourceExclusions: "- apiGroups:\n  - coordination.k8s.io\n  kinds:\n  - Lease",
+				},
 			},
 		},
 		{

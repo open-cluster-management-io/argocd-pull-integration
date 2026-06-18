@@ -50,15 +50,27 @@ spec:
                 description: ArgoCDAgentAddon defines the configuration for the ArgoCD
                   agent addon
                 properties:
-                  agentImage:
-                    description: AgentImage is the ArgoCD agent image to use
+                  agentNamespace:
+                    description: AgentNamespace is the namespace where the ArgoCD
+                      agent (ArgoCD CR) will be deployed on the managed cluster
                     type: string
+                  managedArgoCD:
+                    description: ManagedArgoCD configures the ArgoCD CR deployed on
+                      managed clusters
+                    properties:
+                      resourceExclusions:
+                        description: |-
+                          ResourceExclusions configures ArgoCD resource exclusions on the managed cluster.
+                          This maps to ArgoCD.spec.resourceExclusions and then to argocd-cm resource.exclusions.
+                        type: string
+                    type: object
                   mode:
                     default: managed
                     description: Mode defines the agent mode (managed or autonomous)
                     type: string
-                  operatorImage:
-                    description: OperatorImage is the ArgoCD operator image to use
+                  operatorNamespace:
+                    description: OperatorNamespace is the namespace where the ArgoCD
+                      operator will be deployed on the managed cluster
                     type: string
                   principalServerAddress:
                     description: PrincipalServerAddress is the address of the ArgoCD
@@ -68,9 +80,6 @@ spec:
                     description: PrincipalServerPort is the port of the ArgoCD principal
                       server
                     type: string
-                  uninstall:
-                    description: Uninstall indicates whether to uninstall the addon
-                    type: boolean
                 type: object
               placementRef:
                 description: PlacementRef references a Placement resource to select

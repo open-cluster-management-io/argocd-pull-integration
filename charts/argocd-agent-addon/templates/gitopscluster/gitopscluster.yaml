@@ -22,3 +22,8 @@ spec:
     {{- if .Values.gitOpsCluster.argoCDAgentAddon.operatorNamespace }}
     operatorNamespace: {{ .Values.gitOpsCluster.argoCDAgentAddon.operatorNamespace }}
     {{- end }}
+    {{- if .Values.gitOpsCluster.argoCDAgentAddon.managedArgoCD.resourceExclusions }}
+    managedArgoCD:
+      resourceExclusions: |
+{{ .Values.gitOpsCluster.argoCDAgentAddon.managedArgoCD.resourceExclusions | indent 8 }}
+    {{- end }}

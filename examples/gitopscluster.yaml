@@ -10,3 +10,15 @@ spec:
     name: placement
   argoCDAgentAddon:
     mode: managed
+    managedArgoCD:
+      resourceExclusions: |
+        - apiGroups:
+          - ""
+          - discovery.k8s.io
+          kinds:
+          - Endpoints
+          - EndpointSlice
+        - apiGroups:
+          - coordination.k8s.io
+          kinds:
+          - Lease

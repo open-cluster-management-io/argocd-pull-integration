@@ -45,12 +45,13 @@ type ArgoCDAgentAddonReconciler struct {
 	ArgoCDAgentServerAddress string
 	ArgoCDAgentServerPort    string
 	ArgoCDAgentMode          string
+	ArgoCDResourceExclusions string
 }
 
 // SetupWithManager sets up the addon with the Manager.
 // Returns an error if operatorImage is empty or unparseable.
 func SetupWithManager(mgr manager.Manager, interval int,
-	operatorImage, argoCDAgentServerAddress, argoCDAgentServerPort, argoCDAgentMode string) error {
+	operatorImage, argoCDAgentServerAddress, argoCDAgentServerPort, argoCDAgentMode, argoCDResourceExclusions string) error {
 	if operatorImage == "" {
 		return fmt.Errorf("operatorImage must not be empty (set via Makefile ARGOCD_OPERATOR_IMAGE / ldflags)")
 	}
@@ -67,6 +68,7 @@ func SetupWithManager(mgr manager.Manager, interval int,
 		ArgoCDAgentServerAddress: argoCDAgentServerAddress,
 		ArgoCDAgentServerPort:    argoCDAgentServerPort,
 		ArgoCDAgentMode:          argoCDAgentMode,
+		ArgoCDResourceExclusions: argoCDResourceExclusions,
 	}
 
 	return mgr.Add(reconciler)

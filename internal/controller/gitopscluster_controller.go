@@ -493,6 +493,11 @@ func (r *GitOpsClusterReconciler) buildAddonVariables(
 		variables["ARGOCD_OPERATOR_NAMESPACE"] = gitOpsCluster.Spec.ArgoCDAgentAddon.OperatorNamespace
 	}
 
+	if gitOpsCluster.Spec.ArgoCDAgentAddon.ManagedArgoCD != nil &&
+		gitOpsCluster.Spec.ArgoCDAgentAddon.ManagedArgoCD.ResourceExclusions != "" {
+		variables["ARGOCD_RESOURCE_EXCLUSIONS"] = gitOpsCluster.Spec.ArgoCDAgentAddon.ManagedArgoCD.ResourceExclusions
+	}
+
 	return variables
 }
 
