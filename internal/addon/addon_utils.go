@@ -40,73 +40,9 @@ import (
 func (r *ArgoCDAgentAddonReconciler) templateAndApplyChart(ctx context.Context, chartPath, operatorNamespace, argoCDNamespace, releaseName string) error {
 	klog.Infof("Templating and applying chart %s in namespace %s", releaseName, operatorNamespace)
 
-	// Create temp directory for chart files
-	tempDir, err := os.MkdirTemp("", "helm-chart-*")
+	files, err := r.renderChart(chartPath, operatorNamespace, argoCDNamespace, releaseName)
 	if err != nil {
-		return fmt.Errorf("failed to create temp dir: %v", err)
-	}
-	defer os.RemoveAll(tempDir)
-
-	// Copy embedded chart files to temp directory
-	err = r.copyEmbeddedToTemp(ChartFS, chartPath, tempDir)
-	if err != nil {
-		return fmt.Errorf("failed to copy files: %v", err)
-	}
-
-	// Load the chart
-	chart, err := loader.Load(tempDir)
-	if err != nil {
-		return fmt.Errorf("failed to load chart: %v", err)
-	}
-
-	// Prepare values for templating
-	values := map[string]interface{}{}
-
-	// Parse the operator image
-	operatorImageRepo, operatorImageTag, err := ParseImageReference(r.OperatorImage)
-	if err != nil {
-		return fmt.Errorf("failed to parse operator image: %w", err)
-	}
-
-	// Set up global values for argocd-agent-addon chart
-	argocdAgent := map[string]interface{}{
-		"mode": r.ArgoCDAgentMode,
-	}
-
-	if r.ArgoCDAgentServerAddress != "" {
-		argocdAgent["serverAddress"] = r.ArgoCDAgentServerAddress
-	}
-	if r.ArgoCDAgentServerPort != "" {
-		argocdAgent["serverPort"] = r.ArgoCDAgentServerPort
-	}
-
-	global := map[string]interface{}{
-		"argoCDAgent":             argocdAgent,
-		"argoCDOperatorNamespace": operatorNamespace,
-		"argoCDNamespace":         argoCDNamespace,
-	}
-	values["global"] = global
-
-	// Set operator image at top level for template access
-	values["operatorImage"] = operatorImageRepo
-	values["operatorImageTag"] = operatorImageTag
-
-	// Set up release options
-	options := chartutil.ReleaseOptions{
-		Name:      releaseName,
-		Namespace: operatorNamespace,
-	}
-
-	// Prepare values to render
-	valuesToRender, err := chartutil.ToRenderValues(chart, values, options, nil)
-	if err != nil {
-		return fmt.Errorf("failed to prepare chart values: %v", err)
-	}
-
-	// Render the chart templates
-	files, err := engine.Engine{}.Render(chart, valuesToRender)
-	if err != nil {
-		return fmt.Errorf("failed to render chart templates: %v", err)
+		return err
 	}
 
 	// Apply each rendered manifest
@@ -149,6 +85,90 @@ func (r *ArgoCDAgentAddonReconciler) templateAndApplyChart(ctx context.Context, 
 
 	klog.Infof("Successfully templated and applied chart %s in operator namespace %s and argocd namespace %s", releaseName, operatorNamespace, argoCDNamespace)
 	return nil
+}
+
+func (r *ArgoCDAgentAddonReconciler) renderChart(chartPath, operatorNamespace, argoCDNamespace, releaseName string) (map[string]string, error) {
+	// Create temp directory for chart files
+	tempDir, err := os.MkdirTemp("", "helm-chart-*")
+	if err != nil {
+		return nil, fmt.Errorf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	// Copy embedded chart files to temp directory
+	err = r.copyEmbeddedToTemp(ChartFS, chartPath, tempDir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to copy files: %v", err)
+	}
+
+	// Load the chart
+	chart, err := loader.Load(tempDir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load chart: %v", err)
+	}
+
+	values, err := r.buildChartValues(operatorNamespace, argoCDNamespace)
+	if err != nil {
+		return nil, err
+	}
+
+	// Set up release options
+	options := chartutil.ReleaseOptions{
+		Name:      releaseName,
+		Namespace: operatorNamespace,
+	}
+
+	// Prepare values to render
+	valuesToRender, err := chartutil.ToRenderValues(chart, values, options, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to prepare chart values: %v", err)
+	}
+
+	// Render the chart templates
+	files, err := engine.Engine{}.Render(chart, valuesToRender)
+	if err != nil {
+		return nil, fmt.Errorf("failed to render chart templates: %v", err)
+	}
+
+	return files, nil
+}
+
+func (r *ArgoCDAgentAddonReconciler) buildChartValues(operatorNamespace, argoCDNamespace string) (map[string]interface{}, error) {
+	// Parse the operator image
+	operatorImageRepo, operatorImageTag, err := ParseImageReference(r.OperatorImage)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse operator image: %w", err)
+	}
+
+	values := map[string]interface{}{}
+	argocdAgent := map[string]interface{}{
+		"mode": r.ArgoCDAgentMode,
+	}
+	managedArgoCD := map[string]interface{}{}
+
+	if r.ArgoCDAgentServerAddress != "" {
+		argocdAgent["serverAddress"] = r.ArgoCDAgentServerAddress
+	}
+	if r.ArgoCDAgentServerPort != "" {
+		argocdAgent["serverPort"] = r.ArgoCDAgentServerPort
+	}
+	if r.ArgoCDResourceExclusions != "" {
+		managedArgoCD["resourceExclusions"] = r.ArgoCDResourceExclusions
+	}
+
+	global := map[string]interface{}{
+		"argoCDAgent":             argocdAgent,
+		"argoCDOperatorNamespace": operatorNamespace,
+		"argoCDNamespace":         argoCDNamespace,
+		"managedArgoCD":           managedArgoCD,
+	}
+	values["global"] = global
+
+	// Set operator image at top level for template access
+	values["operatorImage"] = operatorImageRepo
+	values["operatorImageTag"] = operatorImageTag
+
+	return values, nil
 }
 
 // copyEmbeddedToTemp copies embedded chart files to a temporary directory

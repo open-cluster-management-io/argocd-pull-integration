@@ -18,6 +18,7 @@ package addon
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
@@ -27,6 +28,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes/scheme"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	k8syaml "sigs.k8s.io/yaml"
 )
 
 func TestApplyManifest(t *testing.T) {
@@ -434,6 +436,85 @@ func TestTemplateAndApplyChartValidation(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestRenderChartManagedArgoCDResourceExclusions(t *testing.T) {
+	resourceExclusions := `- apiGroups:
+  - ""
+  - discovery.k8s.io
+  kinds:
+  - Endpoints
+  - EndpointSlice
+- apiGroups:
+  - coordination.k8s.io
+  kinds:
+  - Lease`
+
+	r := &ArgoCDAgentAddonReconciler{
+		OperatorImage:            "quay.io/argoprojlabs/argocd-operator:v0.18.0",
+		ArgoCDAgentServerAddress: "argocd-agent-principal.argocd.svc",
+		ArgoCDAgentServerPort:    "443",
+		ArgoCDAgentMode:          "managed",
+		ArgoCDResourceExclusions: resourceExclusions,
+	}
+
+	obj, _ := renderArgoCDTemplate(t, r)
+	got, found, err := unstructured.NestedString(obj.Object, "spec", "resourceExclusions")
+	if err != nil {
+		t.Fatalf("Failed to read spec.resourceExclusions: %v", err)
+	}
+	if !found {
+		t.Fatal("Rendered ArgoCD CR missing spec.resourceExclusions")
+	}
+	if strings.TrimSuffix(got, "\n") != resourceExclusions {
+		t.Errorf("spec.resourceExclusions = %q, want %q", got, resourceExclusions)
+	}
+}
+
+func TestRenderChartOmitsManagedArgoCDResourceExclusionsByDefault(t *testing.T) {
+	r := &ArgoCDAgentAddonReconciler{
+		OperatorImage:            "quay.io/argoprojlabs/argocd-operator:v0.18.0",
+		ArgoCDAgentServerAddress: "argocd-agent-principal.argocd.svc",
+		ArgoCDAgentServerPort:    "443",
+		ArgoCDAgentMode:          "managed",
+	}
+
+	obj, rendered := renderArgoCDTemplate(t, r)
+	if _, found, err := unstructured.NestedString(obj.Object, "spec", "resourceExclusions"); err != nil {
+		t.Fatalf("Failed to read spec.resourceExclusions: %v", err)
+	} else if found {
+		t.Fatal("Rendered ArgoCD CR should not include spec.resourceExclusions by default")
+	}
+	if strings.Contains(rendered, "resourceExclusions:") {
+		t.Fatal("Rendered ArgoCD YAML should not contain resourceExclusions when unset")
+	}
+}
+
+func renderArgoCDTemplate(t *testing.T, r *ArgoCDAgentAddonReconciler) (*unstructured.Unstructured, string) {
+	t.Helper()
+
+	files, err := r.renderChart("charts/argocd-agent-addon", "argocd-operator-system", "argocd", "argocd-agent-addon")
+	if err != nil {
+		t.Fatalf("renderChart() failed: %v", err)
+	}
+
+	var rendered string
+	for name, content := range files {
+		if strings.HasSuffix(name, "/templates/argocd.yaml") || strings.HasSuffix(name, "templates/argocd.yaml") {
+			rendered = content
+			break
+		}
+	}
+	if rendered == "" {
+		t.Fatal("renderChart() did not return templates/argocd.yaml")
+	}
+
+	obj := &unstructured.Unstructured{}
+	if err := k8syaml.Unmarshal([]byte(rendered), obj); err != nil {
+		t.Fatalf("Failed to parse rendered ArgoCD YAML: %v\n%s", err, rendered)
+	}
+
+	return obj, rendered
 }
 
 func TestApplyCRDIfNotExistsValidation(t *testing.T) {

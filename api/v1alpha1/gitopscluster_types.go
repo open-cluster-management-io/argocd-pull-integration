@@ -54,6 +54,18 @@ type ArgoCDAgentAddonSpec struct {
 	// AgentNamespace is the namespace where the ArgoCD agent (ArgoCD CR) will be deployed on the managed cluster
 	// +optional
 	AgentNamespace string `json:"agentNamespace,omitempty"`
+
+	// ManagedArgoCD configures the ArgoCD CR deployed on managed clusters
+	// +optional
+	ManagedArgoCD *ManagedArgoCDSpec `json:"managedArgoCD,omitempty"`
+}
+
+// ManagedArgoCDSpec defines configuration for the ArgoCD CR deployed on managed clusters
+type ManagedArgoCDSpec struct {
+	// ResourceExclusions configures ArgoCD resource exclusions on the managed cluster.
+	// This maps to ArgoCD.spec.resourceExclusions and then to argocd-cm resource.exclusions.
+	// +optional
+	ResourceExclusions string `json:"resourceExclusions,omitempty"`
 }
 
 // GitOpsClusterStatus defines the observed state of GitOpsCluster

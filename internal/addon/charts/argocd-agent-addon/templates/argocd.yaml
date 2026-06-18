@@ -8,6 +8,10 @@ spec:
     enabled: false
   sourceNamespaces:
     - "*"
+{{- with .Values.global.managedArgoCD.resourceExclusions }}
+  resourceExclusions: |
+{{ . | indent 4 }}
+{{- end }}
   argoCDAgent:
     agent:
       enabled: true

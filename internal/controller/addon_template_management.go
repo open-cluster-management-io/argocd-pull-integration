@@ -264,6 +264,10 @@ func buildAddonManifests(addonImage string) []workv1.Manifest {
 												Name:  "ARGOCD_OPERATOR_NAMESPACE",
 												Value: "{{ARGOCD_OPERATOR_NAMESPACE}}",
 											},
+											{
+												Name:  "ARGOCD_RESOURCE_EXCLUSIONS",
+												Value: "{{ARGOCD_RESOURCE_EXCLUSIONS}}",
+											},
 										},
 										SecurityContext: &corev1.SecurityContext{
 											ReadOnlyRootFilesystem:   boolPtr(true),

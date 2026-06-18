@@ -74,6 +74,7 @@ var (
 	ArgoCDAgentServerAddress = ""
 	ArgoCDAgentServerPort    = ""
 	ArgoCDAgentMode          = "managed"
+	ArgoCDResourceExclusions = ""
 )
 
 var (
@@ -276,6 +277,10 @@ func runAddonMode() {
 		ArgoCDAgentMode = newArgoCDAgentMode
 	}
 
+	if newArgoCDResourceExclusions, found := os.LookupEnv("ARGOCD_RESOURCE_EXCLUSIONS"); found && newArgoCDResourceExclusions != "" {
+		ArgoCDResourceExclusions = newArgoCDResourceExclusions
+	}
+
 	setupLog.Info("Addon mode settings",
 		"syncInterval", addonOptions.SyncInterval,
 		"leaseDuration", addonOptions.LeaderElectionLeaseDuration,
@@ -285,6 +290,7 @@ func runAddonMode() {
 		"ArgoCDAgentServerAddress", ArgoCDAgentServerAddress,
 		"ArgoCDAgentServerPort", ArgoCDAgentServerPort,
 		"ArgoCDAgentMode", ArgoCDAgentMode,
+		"ArgoCDResourceExclusionsConfigured", ArgoCDResourceExclusions != "",
 	)
 
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
@@ -304,7 +310,7 @@ func runAddonMode() {
 	}
 
 	if err = addon.SetupWithManager(mgr, addonOptions.SyncInterval,
-		operatorImage, ArgoCDAgentServerAddress, ArgoCDAgentServerPort, ArgoCDAgentMode); err != nil {
+		operatorImage, ArgoCDAgentServerAddress, ArgoCDAgentServerPort, ArgoCDAgentMode, ArgoCDResourceExclusions); err != nil {
 		setupLog.Error(err, "unable to create addon controller")
 		os.Exit(1)
 	}

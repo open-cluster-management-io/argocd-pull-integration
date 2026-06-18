@@ -13,3 +13,5 @@ global:
     mode: managed
     serverAddress: ""
     serverPort: ""
+  managedArgoCD:
+    resourceExclusions: ""

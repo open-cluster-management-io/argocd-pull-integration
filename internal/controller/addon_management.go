@@ -36,6 +36,15 @@ const (
 	ArgoCDAgentAddonConfigName = "argocd-agent-addon-config"
 )
 
+var managedAddonVariableNames = map[string]struct{}{
+	"ARGOCD_AGENT_SERVER_ADDRESS": {},
+	"ARGOCD_AGENT_SERVER_PORT":    {},
+	"ARGOCD_AGENT_MODE":           {},
+	"ARGOCD_NAMESPACE":            {},
+	"ARGOCD_OPERATOR_NAMESPACE":   {},
+	"ARGOCD_RESOURCE_EXCLUSIONS":  {},
+}
+
 // EnsureManagedClusterAddon creates the ManagedClusterAddon for a specific cluster
 // This function can be called from external controllers or for each managed cluster
 func (r *GitOpsClusterReconciler) EnsureManagedClusterAddon(ctx context.Context, clusterNamespace string, gitOpsCluster *appsv1alpha1.GitOpsCluster) error {
@@ -226,28 +235,54 @@ func (r *GitOpsClusterReconciler) EnsureAddOnDeploymentConfig(ctx context.Contex
 
 // updateAddOnDeploymentConfig updates an existing AddOnDeploymentConfig
 func (r *GitOpsClusterReconciler) updateAddOnDeploymentConfig(ctx context.Context, config *addonv1alpha1.AddOnDeploymentConfig, variables map[string]string) error {
-	// Create a map of existing variables
-	existingVars := make(map[string]string)
-	for _, v := range config.Spec.CustomizedVariables {
-		existingVars[v.Name] = v.Value
+	desiredVariables := make([]addonv1alpha1.CustomizedVariable, 0, len(config.Spec.CustomizedVariables)+len(variables))
+	seenDesiredVariables := make(map[string]struct{}, len(variables))
+	needsUpdate := false
+
+	for _, existingVariable := range config.Spec.CustomizedVariables {
+		desiredValue, existsInDesired := variables[existingVariable.Name]
+		if existsInDesired {
+			if _, alreadySeen := seenDesiredVariables[existingVariable.Name]; alreadySeen {
+				needsUpdate = true
+				continue
+			}
+
+			if existingVariable.Value != desiredValue {
+				existingVariable.Value = desiredValue
+				needsUpdate = true
+			}
+
+			desiredVariables = append(desiredVariables, existingVariable)
+			seenDesiredVariables[existingVariable.Name] = struct{}{}
+			continue
+		}
+
+		if _, managed := managedAddonVariableNames[existingVariable.Name]; managed {
+			needsUpdate = true
+			continue
+		}
+
+		desiredVariables = append(desiredVariables, existingVariable)
 	}
 
-	// Merge new variables (only add new ones, don't overwrite existing)
-	needsUpdate := false
 	for name, value := range variables {
-		if _, exists := existingVars[name]; !exists {
-			needsUpdate = true
-			config.Spec.CustomizedVariables = append(config.Spec.CustomizedVariables, addonv1alpha1.CustomizedVariable{
-				Name:  name,
-				Value: value,
-			})
+		if _, exists := seenDesiredVariables[name]; exists {
+			continue
 		}
+
+		needsUpdate = true
+		desiredVariables = append(desiredVariables, addonv1alpha1.CustomizedVariable{
+			Name:  name,
+			Value: value,
+		})
 	}
 
 	if !needsUpdate {
 		klog.V(2).InfoS("AddOnDeploymentConfig already has all required variables", "namespace", config.Namespace)
 		return nil
 	}
+
+	config.Spec.CustomizedVariables = desiredVariables
 
 	if err := r.Update(ctx, config); err != nil {
 		return fmt.Errorf("failed to update AddOnDeploymentConfig: %w", err)

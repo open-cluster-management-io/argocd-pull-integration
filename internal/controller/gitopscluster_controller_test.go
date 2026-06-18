@@ -170,6 +170,31 @@ func TestBuildAddonVariables(t *testing.T) {
 				"ARGOCD_OPERATOR_NAMESPACE":   "custom-operator",
 			},
 		},
+		{
+			name: "with managed ArgoCD resource exclusions",
+			gitOpsCluster: &appsv1alpha1.GitOpsCluster{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-cluster",
+					Namespace: "argocd",
+				},
+				Spec: appsv1alpha1.GitOpsClusterSpec{
+					ArgoCDAgentAddon: appsv1alpha1.ArgoCDAgentAddonSpec{
+						Mode: "managed",
+						ManagedArgoCD: &appsv1alpha1.ManagedArgoCDSpec{
+							ResourceExclusions: "- apiGroups:\n  - coordination.k8s.io\n  kinds:\n  - Lease",
+						},
+					},
+				},
+			},
+			serverAddress: "argocd-server.argocd.svc",
+			serverPort:    "8080",
+			wantVars: map[string]string{
+				"ARGOCD_AGENT_SERVER_ADDRESS": "argocd-server.argocd.svc",
+				"ARGOCD_AGENT_SERVER_PORT":    "8080",
+				"ARGOCD_AGENT_MODE":           "managed",
+				"ARGOCD_RESOURCE_EXCLUSIONS":  "- apiGroups:\n  - coordination.k8s.io\n  kinds:\n  - Lease",
+			},
+		},
 	}
 
 	for _, tt := range tests {

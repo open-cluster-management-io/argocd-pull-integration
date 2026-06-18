@@ -31,6 +31,8 @@ gitOpsCluster:
   argoCDAgentAddon:
     agentNamespace: ""
     operatorNamespace: ""
+    managedArgoCD:
+      resourceExclusions: ""
 
 # Controller settings  
 controller:
