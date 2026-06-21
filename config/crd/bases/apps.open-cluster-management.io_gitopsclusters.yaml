@@ -54,6 +54,25 @@ spec:
                     description: AgentNamespace is the namespace where the ArgoCD
                       agent (ArgoCD CR) will be deployed on the managed cluster
                     type: string
+                  argoCDCRManifestWork:
+                    description: |-
+                      ArgoCDCRManifestWork allows providing a custom ArgoCD CR to deploy to managed clusters via ManifestWork.
+                      When set, the controller wraps these manifests in a ManifestWork and delivers them to each managed cluster
+                      selected by the placement. The manifests must contain at least one ArgoCD CR (apiVersion: argoproj.io/v1beta1, kind: ArgoCD).
+                      When nil, the controller auto-generates a default ArgoCD CR configured for agent mode.
+                    properties:
+                      manifests:
+                        description: |-
+                          Manifests is the list of raw Kubernetes manifests to deploy via ManifestWork.
+                          Must contain at least one ArgoCD CR (apiVersion: argoproj.io/v1beta1, kind: ArgoCD).
+                        items:
+                          type: object
+                          x-kubernetes-preserve-unknown-fields: true
+                        minItems: 1
+                        type: array
+                    required:
+                    - manifests
+                    type: object
                   mode:
                     default: managed
                     description: Mode defines the agent mode (managed or autonomous)

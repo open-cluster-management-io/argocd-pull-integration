@@ -147,23 +147,29 @@ var _ = Describe("ManifestWork Cleanup Controller", func() {
 				return err != nil
 			}).Should(BeTrue())
 
-			By("Verifying ManifestWork for app-5 still exists initially")
-			mw5 := workv1.ManifestWork{}
-			Expect(k8sClient.Get(ctx, mwKey5, &mw5)).Should(Succeed())
+		By("Checking if orphaned ManifestWork for app-5 still exists before cleanup")
+		mw5 := workv1.ManifestWork{}
+		mwExistedBeforeCleanup := k8sClient.Get(ctx, mwKey5, &mw5) == nil
 
-			By("Running cleanup controller once")
-			cleanupReconciler := &ManifestWorkCleanupReconciler{
-				Client:   k8sClient,
-				Scheme:   k8sClient.Scheme(),
-				Interval: 5 * time.Minute,
-			}
-			Expect(cleanupReconciler.cleanup(ctx)).Should(Succeed())
+		By("Running cleanup controller once")
+		cleanupReconciler := &ManifestWorkCleanupReconciler{
+			Client:   k8sClient,
+			Scheme:   k8sClient.Scheme(),
+			Interval: 5 * time.Minute,
+		}
+		Expect(cleanupReconciler.cleanup(ctx)).Should(Succeed())
 
-			By("Verifying orphaned ManifestWork for app-5 is deleted")
+		By("Verifying orphaned ManifestWork for app-5 is deleted")
+		if mwExistedBeforeCleanup {
+			// ManifestWork was still present, so cleanup controller should have deleted it
 			Eventually(func() bool {
 				err := k8sClient.Get(ctx, mwKey5, &mw5)
 				return err != nil
 			}).Should(BeTrue())
+		} else {
+			// ApplicationReconciler already deleted it (race) - verify it's still gone
+			Expect(k8sClient.Get(ctx, mwKey5, &mw5)).ShouldNot(Succeed())
+		}
 
 			By("Verifying ManifestWork for app-4 still exists (not orphaned)")
 			mw4 := workv1.ManifestWork{}

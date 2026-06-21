@@ -141,17 +141,28 @@ var _ = Describe("ArgoCD Agent Addon Custom Namespace E2E", Label("advanced-pull
 				g.Expect(output).To(Equal("True"))
 			}).Should(Succeed())
 
-			By("verifying GitOpsCluster ServerDiscovered condition")
-			Eventually(func(g Gomega) {
-				cmd := exec.Command("kubectl", "--context", hubContext,
-					"get", "gitopscluster", "gitops-cluster",
-					"-n", hubArgoCDNamespace,
-					"-o", "jsonpath={.status.conditions[?(@.type=='ServerDiscovered')].status}")
-				output, err := utils.Run(cmd)
-				g.Expect(err).NotTo(HaveOccurred())
-				g.Expect(output).To(Equal("True"))
-			}).Should(Succeed())
-		})
+		By("verifying GitOpsCluster ServerDiscovered condition")
+		Eventually(func(g Gomega) {
+			cmd := exec.Command("kubectl", "--context", hubContext,
+				"get", "gitopscluster", "gitops-cluster",
+				"-n", hubArgoCDNamespace,
+				"-o", "jsonpath={.status.conditions[?(@.type=='ServerDiscovered')].status}")
+			output, err := utils.Run(cmd)
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(output).To(Equal("True"))
+		}).Should(Succeed())
+
+		By("verifying GitOpsCluster ArgoCDCRDelivered condition (custom CR via ManifestWork)")
+		Eventually(func(g Gomega) {
+			cmd := exec.Command("kubectl", "--context", hubContext,
+				"get", "gitopscluster", "gitops-cluster",
+				"-n", hubArgoCDNamespace,
+				"-o", "jsonpath={.status.conditions[?(@.type=='ArgoCDCRDelivered')].status}")
+			output, err := utils.Run(cmd)
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(output).To(Equal("True"))
+		}).Should(Succeed())
+	})
 
 		It("should verify ArgoCD operator running on hub in custom operator namespace", func() {
 			By("verifying ArgoCD operator pod is running")

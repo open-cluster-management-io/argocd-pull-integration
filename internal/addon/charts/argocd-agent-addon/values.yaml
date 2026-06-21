@@ -9,7 +9,3 @@ operatorImageTag: v0.18.0
 global:
   argoCDOperatorNamespace: argocd-operator-system
   argoCDNamespace: argocd
-  argoCDAgent:
-    mode: managed
-    serverAddress: ""
-    serverPort: ""

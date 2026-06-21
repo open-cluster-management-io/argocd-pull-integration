@@ -246,6 +246,42 @@ func (r *GitOpsClusterReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		}
 	}
 
+	// 9.5) Create ManifestWork for the ArgoCD CR on each managed cluster
+	if gitOpsCluster.Spec.ArgoCDAgentAddon.ArgoCDCRManifestWork != nil {
+		if err := validateArgoCDCRManifestWork(gitOpsCluster.Spec.ArgoCDAgentAddon.ArgoCDCRManifestWork); err != nil {
+			klog.ErrorS(err, "Invalid ArgoCDCRManifestWork spec")
+			r.setCondition(ctx, gitOpsCluster, appsv1alpha1.ConditionArgoCDCRDelivered, metav1.ConditionFalse,
+				appsv1alpha1.ReasonFailed, fmt.Sprintf("Invalid ArgoCDCRManifestWork: %v", err))
+			// Don't requeue - user must fix the spec; the watch will trigger reconciliation on spec update
+			return ctrl.Result{}, nil
+		}
+	}
+
+	failedCRClusters := []string{}
+	deliveredCount := 0
+	for _, managedCluster := range managedClusters {
+		if isLocalCluster(managedCluster) {
+			continue
+		}
+		if err := r.createArgoCDCRManifestWork(ctx, gitOpsCluster, managedCluster, serverAddress, serverPort); err != nil {
+			klog.ErrorS(err, "Failed to create ArgoCD CR ManifestWork", "cluster", managedCluster.Name)
+			failedCRClusters = append(failedCRClusters, managedCluster.Name)
+		} else {
+			deliveredCount++
+		}
+	}
+
+	if len(failedCRClusters) > 0 {
+		r.setCondition(ctx, gitOpsCluster, appsv1alpha1.ConditionArgoCDCRDelivered, metav1.ConditionFalse,
+			appsv1alpha1.ReasonFailed, fmt.Sprintf("Failed to deliver ArgoCD CR to clusters: %s", joinClusterNames(failedCRClusters)))
+	} else if deliveredCount > 0 {
+		r.setCondition(ctx, gitOpsCluster, appsv1alpha1.ConditionArgoCDCRDelivered, metav1.ConditionTrue,
+			appsv1alpha1.ReasonSuccess, fmt.Sprintf("Delivered ArgoCD CR to %d clusters", deliveredCount))
+	} else {
+		r.setCondition(ctx, gitOpsCluster, appsv1alpha1.ConditionArgoCDCRDelivered, metav1.ConditionTrue,
+			appsv1alpha1.ReasonNoClusters, "No non-local clusters to deliver ArgoCD CR to")
+	}
+
 	// 10) Clean up addons for clusters no longer in placement
 	clustersRemoved, err := r.cleanupRemovedClusters(ctx, gitOpsCluster, managedClusters)
 	if err != nil {
@@ -391,16 +427,21 @@ func (r *GitOpsClusterReconciler) cleanupRemovedClusters(ctx context.Context, gi
 			// The config will be cleaned up when the ManagedClusterAddon is fully deleted,
 			// or when the GitOpsCluster is deleted (if set as owner).
 
-			// Also delete ManifestWork
-			manifestWorkName := types.NamespacedName{
+			// Also delete CA ManifestWork
+			caManifestWorkName := types.NamespacedName{
 				Namespace: clusterName,
-				Name:      fmt.Sprintf("argocd-agent-ca-%s", gitOpsCluster.Namespace),
+				Name:      ArgoCDAgentCAManifestWorkName,
 			}
-			manifestWork := &workv1.ManifestWork{}
-			if err := r.Get(ctx, manifestWorkName, manifestWork); err == nil {
-				if err := r.Delete(ctx, manifestWork); err != nil && !k8serrors.IsNotFound(err) {
-					klog.ErrorS(err, "Failed to delete ManifestWork", "cluster", clusterName)
+			caManifestWork := &workv1.ManifestWork{}
+			if err := r.Get(ctx, caManifestWorkName, caManifestWork); err == nil {
+				if err := r.Delete(ctx, caManifestWork); err != nil && !k8serrors.IsNotFound(err) {
+					klog.ErrorS(err, "Failed to delete CA ManifestWork", "cluster", clusterName)
 				}
+			}
+
+			// Also delete ArgoCD CR ManifestWork
+			if err := r.deleteArgoCDCRManifestWork(ctx, clusterName, gitOpsCluster.Namespace, gitOpsCluster.Name); err != nil {
+				klog.ErrorS(err, "Failed to delete ArgoCD CR ManifestWork", "cluster", clusterName)
 			}
 
 			// Also delete the ArgoCD cluster secret
@@ -517,6 +558,7 @@ func (r *GitOpsClusterReconciler) initializeConditions(
 		appsv1alpha1.ConditionPlacementEvaluated,
 		appsv1alpha1.ConditionClustersImported,
 		appsv1alpha1.ConditionManifestWorkCreated,
+		appsv1alpha1.ConditionArgoCDCRDelivered,
 		appsv1alpha1.ConditionAddonConfigured,
 	}
 
