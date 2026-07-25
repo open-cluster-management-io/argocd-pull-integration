@@ -17,6 +17,7 @@ limitations under the License.
 package controller
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"time"
@@ -25,6 +26,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/openshift/library-go/pkg/crypto"
@@ -173,6 +175,16 @@ func (r *GitOpsClusterReconciler) EnsurePrincipalCertificate(ctx context.Context
 		Client:    kubeClient.CoreV1(),
 	}
 
+	// Snapshot the current cert bytes BEFORE rotation so we can tell whether
+	// EnsureTargetCertKeyPair actually changed them. The principal reads its TLS
+	// keypair ONCE at startup (no fsnotify/informer/reload — argocd-agent
+	// principal caches the tls.Config on boot), so it must be restarted whenever
+	// this secret's contents change. certrotation rewrites the secret on the ~30-day
+	// rotation (and on first creation / SAN change); comparing the tls.crt bytes
+	// across the call detects exactly those events and nothing else, so a stable
+	// cert on the 10-minute resync produces NO restart (loop-safe).
+	certBefore, errBefore := r.getPrincipalTLSCertBytes(ctx, kubeClient, namespace)
+
 	// Ensure the principal TLS certificate
 	if err := principalRotation.EnsureTargetCertKeyPair(signingCertKeyPair, caBundleCerts); err != nil {
 		return fmt.Errorf("failed to ensure principal TLS certificate: %w", err)
@@ -184,7 +196,90 @@ func (r *GitOpsClusterReconciler) EnsurePrincipalCertificate(ctx context.Context
 	klog.InfoS("Successfully ensured principal TLS certificate",
 		"namespace", namespace, "secret", ArgoCDAgentPrincipalTLSSecretName)
 
+	// If the cert changed (rotation, first issuance, or SAN change), restart the
+	// principal so it picks up the new keypair. Best-effort: a restart failure must
+	// not fail the reconcile (the cert IS provisioned; the next resync retries).
+	certAfter, errAfter := r.getPrincipalTLSCertBytes(ctx, kubeClient, namespace)
+
+	// A read error (timeout, throttling, forbidden) is NOT a certificate change.
+	// Treating it as one would spuriously restart the principal (error on the before
+	// read) or silently miss a real rotation (error on the after read). Skip the
+	// change decision entirely when either read failed and let the next resync retry —
+	// the cert itself is already provisioned, so this only defers the restart.
+	if errBefore != nil || errAfter != nil {
+		klog.V(2).InfoS("Skipping principal restart decision: could not reliably read cert bytes; will retry next resync",
+			"namespace", namespace, "errBefore", errBefore, "errAfter", errAfter)
+		return nil
+	}
+
+	if !bytes.Equal(certBefore, certAfter) {
+		klog.InfoS("Principal TLS certificate changed — restarting principal to load it",
+			"namespace", namespace, "secret", ArgoCDAgentPrincipalTLSSecretName,
+			"firstIssuance", len(certBefore) == 0)
+		if err := r.restartPrincipalDeployment(ctx, kubeClient, namespace); err != nil {
+			klog.ErrorS(err, "Failed to restart principal after certificate change (non-fatal; will retry next resync)",
+				"namespace", namespace)
+		}
+	}
+
 	return nil
+}
+
+// getPrincipalTLSCertBytes returns the tls.crt bytes of the principal TLS secret. A
+// genuinely absent secret (cold-start, before first issuance) returns (nil, nil); any
+// other GET failure returns a non-nil error so the caller can distinguish "no cert yet"
+// from "couldn't read the cert" and avoid mistaking a transient error for a cert change.
+// Read directly from the API server (not the informer lister) so the value reflects the
+// just-written secret.
+func (r *GitOpsClusterReconciler) getPrincipalTLSCertBytes(
+	ctx context.Context, kubeClient kubernetes.Interface, namespace string) ([]byte, error) {
+
+	secret, err := kubeClient.CoreV1().Secrets(namespace).Get(ctx, ArgoCDAgentPrincipalTLSSecretName, metav1.GetOptions{})
+	if err != nil {
+		if k8serrors.IsNotFound(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return secret.Data[corev1.TLSCertKey], nil
+}
+
+// restartPrincipalDeployment triggers a rolling restart of the argocd-agent principal
+// Deployment by stamping the conventional restartedAt annotation on its pod template —
+// the same mechanism as `kubectl rollout restart`. This is how the controller keeps the
+// principal's in-memory TLS keypair in sync with the rotated secret WITHOUT any external
+// controller (e.g. Stakater Reloader) or a hand-run `kubectl rollout restart`.
+//
+// Best-effort by design: it patches by name (with the openshift-gitops fallback) and
+// returns an error only for the caller to log — a missing Deployment (the operator hasn't
+// created it yet) or a transient patch failure must not fail cert reconciliation.
+func (r *GitOpsClusterReconciler) restartPrincipalDeployment(
+	ctx context.Context, kubeClient kubernetes.Interface, namespace string) error {
+
+	// Merge-patch the pod-template restartedAt annotation. This is idempotent per
+	// timestamp and rolls the Deployment exactly once per cert change.
+	patch := fmt.Sprintf(
+		`{"spec":{"template":{"metadata":{"annotations":{"argocd-pull-integration/principal-cert-restartedAt":%q}}}}}`,
+		time.Now().UTC().Format(time.RFC3339))
+
+	names := []string{"argocd-agent-principal", "openshift-gitops-agent-principal"}
+	var lastErr error
+	for _, name := range names {
+		_, err := kubeClient.AppsV1().Deployments(namespace).Patch(
+			ctx, name, types.StrategicMergePatchType, []byte(patch), metav1.PatchOptions{})
+		if err == nil {
+			klog.InfoS("Restarted argocd-agent principal Deployment after certificate change",
+				"namespace", namespace, "deployment", name)
+			return nil
+		}
+		if !k8serrors.IsNotFound(err) {
+			lastErr = fmt.Errorf("failed to patch Deployment %s/%s: %w", namespace, name, err)
+		}
+	}
+	if lastErr != nil {
+		return lastErr
+	}
+	return fmt.Errorf("argocd-agent principal Deployment not found in namespace %s (tried %v) — operator may not have created it yet", namespace, names)
 }
 
 // EnsureResourceProxyCertificate ensures the resource proxy TLS certificate is generated from the CA
