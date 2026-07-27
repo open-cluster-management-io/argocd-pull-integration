@@ -152,8 +152,10 @@ func (r *GitOpsClusterReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	r.setCondition(ctx, gitOpsCluster, appsv1alpha1.ConditionCACertificateReady, metav1.ConditionTrue,
 		appsv1alpha1.ReasonSuccess, "CA certificate created successfully")
 
-	// 4) Use the ca secret to generate the principal cert
-	if err := r.EnsurePrincipalCertificate(ctx, argoCDNamespace); err != nil {
+	// 4) Use the ca secret to generate the principal cert. Pass the advertised server
+	// address so it is included in the cert SANs — the cert must be valid for the exact
+	// address agents dial (ARGOCD_AGENT_REMOTE_SERVER), be it an IP or a DNS name.
+	if err := r.EnsurePrincipalCertificate(ctx, argoCDNamespace, serverAddress); err != nil {
 		klog.ErrorS(err, "Failed to ensure principal certificate", "namespace", argoCDNamespace)
 		r.setCondition(ctx, gitOpsCluster, appsv1alpha1.ConditionPrincipalCertificateReady, metav1.ConditionFalse,
 			appsv1alpha1.ReasonFailed, fmt.Sprintf("Failed to generate principal certificate: %v", err))

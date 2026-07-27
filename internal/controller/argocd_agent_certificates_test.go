@@ -30,6 +30,14 @@ import (
 	appsv1alpha1 "open-cluster-management.io/argocd-pull-integration/api/v1alpha1"
 )
 
+// Example advertised-address values for the principal certificate SAN tests. These are
+// deliberately RFC-reserved documentation values (RFC 5737 TEST-NET-1 for the IP, RFC 2606
+// for the domain) so no real infrastructure address appears in the codebase.
+const (
+	testAdvertisedIP  = "192.0.2.10"            // RFC 5737 TEST-NET-1
+	testAdvertisedDNS = "principal.example.com" // RFC 2606 reserved example domain
+)
+
 func TestGetPrincipalHostNames(t *testing.T) {
 	s := runtime.NewScheme()
 	_ = scheme.AddToScheme(s)
@@ -38,10 +46,17 @@ func TestGetPrincipalHostNames(t *testing.T) {
 	namespace := "argocd"
 
 	tests := []struct {
-		name         string
-		existingObjs []runtime.Object
-		wantMinCount int
-		wantContains string
+		name          string
+		existingObjs  []runtime.Object
+		serverAddress string
+		wantMinCount  int
+		wantContains  string
+		// wantAbsentDup asserts the given SAN appears at most once (dedupe check).
+		wantAbsentDup string
+		// allowFirst skips the "serverAddress must not be the CN" guard for cases where
+		// serverAddress legitimately coincides with a discovered address that is first by
+		// design (e.g. a LoadBalancer ingress IP, or a service-derived fallback name).
+		allowFirst bool
 	}{
 		{
 			name: "with principal service",
@@ -65,6 +80,71 @@ func TestGetPrincipalHostNames(t *testing.T) {
 			wantMinCount: 2, // Returns default hostnames
 			wantContains: "argocd-agent-principal.argocd.svc",
 		},
+		{
+			name: "advertised IP server address is included as a SAN",
+			existingObjs: []runtime.Object{
+				&corev1.Service{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "argocd-agent-principal",
+						Namespace: namespace,
+					},
+					Spec: corev1.ServiceSpec{ClusterIP: "10.0.0.1"},
+				},
+			},
+			serverAddress: testAdvertisedIP,
+			wantMinCount:  3,
+			wantContains:  testAdvertisedIP,
+		},
+		{
+			name: "advertised DNS server address is included as a SAN",
+			existingObjs: []runtime.Object{
+				&corev1.Service{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "argocd-agent-principal",
+						Namespace: namespace,
+					},
+					Spec: corev1.ServiceSpec{ClusterIP: "10.0.0.1"},
+				},
+			},
+			serverAddress: testAdvertisedDNS,
+			wantMinCount:  3,
+			wantContains:  testAdvertisedDNS,
+		},
+		{
+			// serverAddress is DISTINCT from the fallback names, so a pass here proves
+			// the advertised address is genuinely threaded in (not just the fallback).
+			name:          "advertised address without service is still included",
+			existingObjs:  []runtime.Object{},
+			serverAddress: testAdvertisedDNS,
+			wantMinCount:  3, // 2 fallback DNS names + the advertised address
+			wantContains:  testAdvertisedDNS,
+		},
+		{
+			// serverAddress coincides with the Service's LoadBalancer ingress IP, so the
+			// combined list would contain it twice — assert dedupe collapses it to one.
+			// The IP is first here because LB-ingress discovery adds it before the DNS
+			// names (pre-existing ordering), so the CN guard is opted out via allowFirst.
+			name: "advertised address matching a service ingress is deduped to one",
+			existingObjs: []runtime.Object{
+				&corev1.Service{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "argocd-agent-principal",
+						Namespace: namespace,
+					},
+					Spec: corev1.ServiceSpec{ClusterIP: "10.0.0.1"},
+					Status: corev1.ServiceStatus{
+						LoadBalancer: corev1.LoadBalancerStatus{
+							Ingress: []corev1.LoadBalancerIngress{{IP: testAdvertisedIP}},
+						},
+					},
+				},
+			},
+			serverAddress: testAdvertisedIP,
+			wantMinCount:  3,
+			wantContains:  testAdvertisedIP,
+			wantAbsentDup: testAdvertisedIP,
+			allowFirst:    true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -74,7 +154,7 @@ func TestGetPrincipalHostNames(t *testing.T) {
 				Scheme: s,
 			}
 
-			hostNames := r.getPrincipalHostNames(context.Background(), namespace)
+			hostNames := r.getPrincipalHostNames(context.Background(), namespace, tt.serverAddress)
 
 			if len(hostNames) < tt.wantMinCount {
 				t.Errorf("getPrincipalHostNames() returned %d hostnames, want at least %d", len(hostNames), tt.wantMinCount)
@@ -82,14 +162,30 @@ func TestGetPrincipalHostNames(t *testing.T) {
 
 			// Verify expected hostname is included
 			found := false
+			count := 0
 			for _, hn := range hostNames {
 				if hn == tt.wantContains {
 					found = true
-					break
+				}
+				if tt.wantAbsentDup != "" && hn == tt.wantAbsentDup {
+					count++
 				}
 			}
 			if !found {
 				t.Errorf("getPrincipalHostNames() should contain %s, got %v", tt.wantContains, hostNames)
+			}
+			if tt.wantAbsentDup != "" && count != 1 {
+				t.Errorf("getPrincipalHostNames() should contain %s exactly once (dedupe), got %d in %v", tt.wantAbsentDup, count, hostNames)
+			}
+			// The advertised serverAddress must be APPENDED, never first: certrotation
+			// derives the Subject CN from the first entry, which must stay the stable
+			// service-derived name, not an operator-set DNS/IP address. Cases where the
+			// address legitimately coincides with a first-by-design discovered value (a
+			// service-derived fallback name, or a LoadBalancer ingress IP) opt out via
+			// allowFirst.
+			if !tt.allowFirst && tt.serverAddress != "" &&
+				len(hostNames) > 0 && hostNames[0] == tt.serverAddress {
+				t.Errorf("serverAddress %q must not be the first (CN) entry; got %v", tt.serverAddress, hostNames)
 			}
 		})
 	}

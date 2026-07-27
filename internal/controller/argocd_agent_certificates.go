@@ -131,9 +131,14 @@ func (r *GitOpsClusterReconciler) EnsureArgoCDAgentCASecret(ctx context.Context,
 	return nil
 }
 
-// EnsurePrincipalCertificate ensures the principal TLS certificate is generated from the CA
-func (r *GitOpsClusterReconciler) EnsurePrincipalCertificate(ctx context.Context, namespace string) error {
-	klog.V(2).InfoS("Ensuring principal TLS certificate", "namespace", namespace)
+// EnsurePrincipalCertificate ensures the principal TLS certificate is generated from the CA.
+// serverAddress is the address the controller advertises to agents
+// (GitOpsCluster.Spec.ArgoCDAgentAddon.PrincipalServerAddress); it is added to the
+// certificate SANs so the cert is valid for exactly what agents dial — whether that is a
+// bare IP (e.g. an internal LoadBalancer VIP) or a DNS name fronting the LB. Pass "" to
+// derive SANs from the principal Service alone.
+func (r *GitOpsClusterReconciler) EnsurePrincipalCertificate(ctx context.Context, namespace, serverAddress string) error {
+	klog.V(2).InfoS("Ensuring principal TLS certificate", "namespace", namespace, "serverAddress", serverAddress)
 
 	// Verify CA secret exists
 	if err := r.verifyCACertificateExists(ctx, namespace); err != nil {
@@ -163,7 +168,7 @@ func (r *GitOpsClusterReconciler) EnsurePrincipalCertificate(ctx context.Context
 		Namespace: namespace,
 		Name:      ArgoCDAgentPrincipalTLSSecretName,
 		Validity:  TargetCertValidity,
-		HostNames: r.getPrincipalHostNames(ctx, namespace),
+		HostNames: r.getPrincipalHostNames(ctx, namespace, serverAddress),
 		Lister:    secretLister,
 		Client:    kubeClient.CoreV1(),
 	}
@@ -327,17 +332,24 @@ func (r *GitOpsClusterReconciler) loadCACertificate(
 
 // getPrincipalHostNames returns the hostnames for the principal certificate.
 // Includes LoadBalancer IPs/hostnames, NodePort node IPs, and internal DNS names.
-func (r *GitOpsClusterReconciler) getPrincipalHostNames(ctx context.Context, namespace string) []string {
+func (r *GitOpsClusterReconciler) getPrincipalHostNames(ctx context.Context, namespace, serverAddress string) []string {
 	hostnames := []string{}
+
+	// The advertised server address is added LAST (see appendServerAddress below), not
+	// first: certrotation derives the certificate's Subject CN from the first HostNames
+	// entry, so we keep the stable service-derived name as the CN and add serverAddress
+	// only as an additional SAN. An operator-set DNS name or an IP LB VIP would otherwise
+	// become the CN, which is undesirable (and could be a long/host:port string).
 
 	service, err := r.findArgoCDAgentPrincipalService(ctx, namespace)
 	if err != nil {
 		klog.V(2).InfoS("Could not find principal service for hostname discovery, using defaults", "error", err)
 		serviceName := "argocd-agent-principal"
-		return []string{
+		hostnames = append(hostnames,
 			fmt.Sprintf("%s.%s.svc", serviceName, namespace),
 			fmt.Sprintf("%s.%s.svc.cluster.local", serviceName, namespace),
-		}
+		)
+		return dedupeHostNames(appendServerAddress(hostnames, serverAddress))
 	}
 
 	// Add LoadBalancer external hostnames/IPs
@@ -375,7 +387,36 @@ func (r *GitOpsClusterReconciler) getPrincipalHostNames(ctx context.Context, nam
 
 	hostnames = append(hostnames, "localhost", "127.0.0.1", "::1")
 
+	return dedupeHostNames(appendServerAddress(hostnames, serverAddress))
+}
+
+// appendServerAddress appends the advertised server address as an additional SAN, if set.
+// This is the address the controller writes into every agent's ARGOCD_AGENT_REMOTE_SERVER,
+// so the principal cert MUST be valid for it. It is appended (not prepended) so the stable
+// service-derived name remains the certificate Subject CN. certrotation classifies the
+// entry as an IP or DNS SAN via crypto.IPAddressesDNSNames, so this is correct whether
+// serverAddress is a bare IP (e.g. an internal LoadBalancer VIP) or a DNS name.
+func appendServerAddress(hostnames []string, serverAddress string) []string {
+	if serverAddress != "" {
+		hostnames = append(hostnames, serverAddress)
+	}
 	return hostnames
+}
+
+// dedupeHostNames removes duplicate SAN entries while preserving order. The advertised
+// server address can coincide with a Service ingress IP/hostname, so the combined list
+// may contain duplicates; a duplicate SAN is harmless but noisy in the issued cert.
+func dedupeHostNames(in []string) []string {
+	seen := make(map[string]struct{}, len(in))
+	out := make([]string, 0, len(in))
+	for _, h := range in {
+		if _, ok := seen[h]; ok {
+			continue
+		}
+		seen[h] = struct{}{}
+		out = append(out, h)
+	}
+	return out
 }
 
 // getResourceProxyHostNames returns the hostnames for the resource proxy certificate
