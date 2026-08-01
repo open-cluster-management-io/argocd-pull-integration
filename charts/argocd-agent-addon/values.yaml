@@ -12,6 +12,10 @@ replicas: 1
 operatorImage: quay.io/argoprojlabs/argocd-operator
 operatorImageTag: v0.18.0
 
+# Image pull secrets applied to the controller and argocd-operator
+# Deployments, for pulling images from private registries.
+imagePullSecrets: []
+
 # Principal service type: LoadBalancer for production (cloud LB),
 # NodePort for local dev (e.g. kind) - override via --set principalServiceType=NodePort
 principalServiceType: LoadBalancer
