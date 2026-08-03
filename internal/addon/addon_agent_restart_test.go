@@ -73,6 +73,25 @@ func restartedAt(t *testing.T, c client.Client) (string, bool) {
 	return v, ok
 }
 
+// certDigestOn returns the certificate-revision digest recorded on the agent Deployment.
+func certDigestOn(t *testing.T, c client.Client) string {
+	t.Helper()
+	d := &appsv1.Deployment{}
+	if err := c.Get(context.Background(),
+		types.NamespacedName{Name: agentDeploymentName, Namespace: argoCDNamespace}, d); err != nil {
+		t.Fatalf("failed to read agent Deployment: %v", err)
+	}
+	return d.Spec.Template.Annotations[agentCertDigestAnnotation]
+}
+
+// agentDeploymentAtDigest is a Deployment already recorded as running a given cert revision,
+// i.e. the steady state after a successful restart.
+func agentDeploymentAtDigest(digest string) *appsv1.Deployment {
+	d := agentDeployment()
+	d.Spec.Template.Annotations = map[string]string{agentCertDigestAnnotation: digest}
+	return d
+}
+
 // TestCopyClientCertificateRestartsAgentOnChange covers the whole point of the feature: the
 // agent caches its client cert at startup, so a rotation must roll it — and an UNCHANGED
 // cert must NOT, or the periodic reconcile becomes a restart loop.
@@ -97,14 +116,38 @@ func TestCopyClientCertificateRestartsAgentOnChange(t *testing.T) {
 			desc:        "rotation is exactly the case the agent cannot survive on its own",
 		},
 		{
-			name: "cert unchanged -> NO restart (loop-safety)",
+			name: "cert unchanged AND agent already at that revision -> NO restart (loop-safety)",
 			objs: []runtime.Object{
 				sourceCertSecret("same-cert", "same-key"),
 				targetCertSecret("same-cert", "same-key"),
-				agentDeployment(),
+				agentDeploymentAtDigest(agentCertDigest([]byte("same-cert"), []byte("same-key"))),
 			},
 			wantRestart: false,
 			desc:        "reconcile runs on a timer; restarting here would roll the agent forever",
+		},
+		{
+			// REGRESSION: this is the case an edge-triggered "restart if the secret changed"
+			// implementation gets WRONG. The secret already holds the new cert (a previous
+			// reconcile persisted it) but the Deployment was never rolled, because that patch
+			// failed transiently. The agent is still on the OLD keypair and will expire.
+			name: "secret already current but agent never rolled -> restart (retry after a failed patch)",
+			objs: []runtime.Object{
+				sourceCertSecret("new-cert", "new-key"),
+				targetCertSecret("new-cert", "new-key"),
+				agentDeployment(), // no digest recorded at all
+			},
+			wantRestart: true,
+			desc:        "a restart missed due to a transient error must self-heal, not wait for the next rotation",
+		},
+		{
+			name: "secret already current but agent at a STALE revision -> restart",
+			objs: []runtime.Object{
+				sourceCertSecret("new-cert", "new-key"),
+				targetCertSecret("new-cert", "new-key"),
+				agentDeploymentAtDigest(agentCertDigest([]byte("old-cert"), []byte("old-key"))),
+			},
+			wantRestart: true,
+			desc:        "same retry property when a previous revision was recorded",
 		},
 		{
 			name: "only the KEY changed -> restart",
@@ -185,23 +228,37 @@ func TestCopyClientCertificateSucceedsWithoutAgentDeployment(t *testing.T) {
 // TestRestartAgentDeploymentIsIdempotentlyRepeatable asserts a second restart overwrites the
 // annotation rather than erroring or accumulating keys — each cert change yields exactly one
 // value, so the Deployment rolls once per change.
-func TestRestartAgentDeploymentIsIdempotentlyRepeatable(t *testing.T) {
+// TestRestartAgentDeploymentRecordsEachRevision asserts that two DIFFERENT certificate
+// revisions produce two different digest stamps. A second-precision timestamp alone could
+// not distinguish them if both rotations landed inside the same second, so the Deployment
+// would not roll for the second one.
+func TestRestartAgentDeploymentRecordsEachRevision(t *testing.T) {
 	s := runtime.NewScheme()
 	_ = scheme.AddToScheme(s)
 
 	c := fake.NewClientBuilder().WithScheme(s).WithRuntimeObjects(agentDeployment()).Build()
 	r := &ArgoCDAgentAddonReconciler{Client: c, Scheme: s}
 
-	if err := r.restartAgentDeployment(context.Background(), argoCDNamespace); err != nil {
-		t.Fatalf("first restart failed: %v", err)
-	}
-	first, ok := restartedAt(t, c)
-	if !ok {
-		t.Fatal("restart annotation was not set")
+	firstDigest := agentCertDigest([]byte("cert-v1"), []byte("key-v1"))
+	secondDigest := agentCertDigest([]byte("cert-v2"), []byte("key-v2"))
+	if firstDigest == secondDigest {
+		t.Fatal("distinct keypairs must not share a digest")
 	}
 
-	if err := r.restartAgentDeployment(context.Background(), argoCDNamespace); err != nil {
+	if err := r.restartAgentDeployment(context.Background(), argoCDNamespace, firstDigest); err != nil {
+		t.Fatalf("first restart failed: %v", err)
+	}
+	if got := certDigestOn(t, c); got != firstDigest {
+		t.Fatalf("digest after first restart = %q, want %q", got, firstDigest)
+	}
+
+	// Both restarts happen well within the same second — the digest, not the timestamp, is
+	// what has to change for the Deployment to roll again.
+	if err := r.restartAgentDeployment(context.Background(), argoCDNamespace, secondDigest); err != nil {
 		t.Fatalf("second restart failed: %v", err)
+	}
+	if got := certDigestOn(t, c); got != secondDigest {
+		t.Errorf("digest after second restart = %q, want %q (a same-second rotation must still roll the agent)", got, secondDigest)
 	}
 
 	d := &appsv1.Deployment{}
@@ -209,11 +266,20 @@ func TestRestartAgentDeploymentIsIdempotentlyRepeatable(t *testing.T) {
 		types.NamespacedName{Name: agentDeploymentName, Namespace: argoCDNamespace}, d); err != nil {
 		t.Fatalf("failed to read agent Deployment: %v", err)
 	}
-	if len(d.Spec.Template.Annotations) != 1 {
-		t.Errorf("pod template annotations = %v, want exactly 1 (the restart stamp)", d.Spec.Template.Annotations)
+	if len(d.Spec.Template.Annotations) != 2 {
+		t.Errorf("pod template annotations = %v, want exactly 2 (digest + timestamp)", d.Spec.Template.Annotations)
 	}
-	if _, ok := d.Spec.Template.Annotations[agentCertRestartedAtAnnotation]; !ok {
-		t.Errorf("restart annotation missing after second restart; first was %q", first)
+}
+
+// TestAgentCertDigestIsUnambiguous guards against the classic concatenation collision: a
+// naive sha256(cert||key) would hash ("ab","c") and ("a","bc") identically, so a rotation
+// that only shifted the split would be treated as no change at all.
+func TestAgentCertDigestIsUnambiguous(t *testing.T) {
+	if agentCertDigest([]byte("ab"), []byte("c")) == agentCertDigest([]byte("a"), []byte("bc")) {
+		t.Error("digest must not collide across different cert/key splits of the same bytes")
+	}
+	if agentCertDigest([]byte("cert"), []byte("key")) != agentCertDigest([]byte("cert"), []byte("key")) {
+		t.Error("digest must be stable for identical input")
 	}
 }
 
@@ -232,7 +298,8 @@ func TestRestartAgentDeploymentPreservesOtherAnnotations(t *testing.T) {
 	c := fake.NewClientBuilder().WithScheme(s).WithRuntimeObjects(d).Build()
 	r := &ArgoCDAgentAddonReconciler{Client: c, Scheme: s}
 
-	if err := r.restartAgentDeployment(context.Background(), argoCDNamespace); err != nil {
+	if err := r.restartAgentDeployment(context.Background(), argoCDNamespace,
+		agentCertDigest([]byte("cert"), []byte("key"))); err != nil {
 		t.Fatalf("restart failed: %v", err)
 	}
 

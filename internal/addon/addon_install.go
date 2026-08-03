@@ -17,8 +17,9 @@ limitations under the License.
 package addon
 
 import (
-	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"strings"
@@ -42,10 +43,16 @@ const (
 	// from the ArgoCD CR. It consumes the client certificate this file copies.
 	agentDeploymentName = "argocd-agent-agent"
 
-	// agentCertRestartedAtAnnotation is stamped on the agent's POD TEMPLATE to trigger a
-	// rolling restart when the client certificate changes. Deliberately namespaced to this
-	// project rather than reusing kubectl.kubernetes.io/restartedAt, so an operator-driven
-	// restart and a certificate-driven one remain distinguishable when debugging.
+	// agentCertDigestAnnotation records WHICH client-certificate revision the agent was last
+	// rolled for. It is the state that makes the restart decision level-triggered rather than
+	// edge-triggered, so a restart missed due to a transient API error is retried on the next
+	// reconcile instead of being lost until the following rotation.
+	agentCertDigestAnnotation = "argocd-pull-integration/agent-cert-digest"
+
+	// agentCertRestartedAtAnnotation records WHEN that restart happened. Operator-facing
+	// only — the digest above is what actually triggers the rollout. Deliberately namespaced
+	// to this project rather than reusing kubectl.kubernetes.io/restartedAt, so an
+	// operator-driven restart and a certificate-driven one remain distinguishable.
 	agentCertRestartedAtAnnotation = "argocd-pull-integration/agent-cert-restartedAt"
 )
 
@@ -275,23 +282,15 @@ func (r *ArgoCDAgentAddonReconciler) copyClientCertificate(ctx context.Context) 
 				return err
 			}
 			// First issuance. The agent Deployment usually does not exist yet (the operator
-			// creates it from the ArgoCD CR), in which case restartAgentDeployment is a no-op
-			// NotFound and the agent will read this secret on its own first start. Attempt it
-			// anyway to cover the cold-start race where the agent booted just BEFORE the
-			// secret landed and is therefore running with no client cert at all.
-			r.restartAgentAfterCertChange(ctx, argoCDNamespace, true)
+			// creates it from the ArgoCD CR), in which case this is a no-op NotFound and the
+			// agent will read this secret on its own first start. Converge anyway to cover the
+			// cold-start race where the agent booted just BEFORE the secret landed and is
+			// therefore running with no client cert at all.
+			r.ensureAgentRestartedForCert(ctx, argoCDNamespace, agentCertDigest(tlsCrt, tlsKey))
 			return nil
 		}
 		return fmt.Errorf("failed to check existing secret: %w", err)
 	}
-
-	// Content-gate the restart: compare what is already stored against what we are about to
-	// store. Only a real rotation (or a SAN/CA change) differs, so the periodic reconcile in
-	// ArgoCDAgentAddonReconciler.reconcile does NOT roll the agent every interval. Getting
-	// this wrong would be a restart loop, which is why the comparison is on the bytes rather
-	// than on resourceVersion (which changes on any write, including our own no-op update).
-	certChanged := !bytes.Equal(existingSecret.Data["tls.crt"], tlsCrt) ||
-		!bytes.Equal(existingSecret.Data["tls.key"], tlsKey)
 
 	existingSecret.Data = map[string][]byte{
 		"tls.crt": tlsCrt,
@@ -308,37 +307,85 @@ func (r *ArgoCDAgentAddonReconciler) copyClientCertificate(ctx context.Context) 
 		return err
 	}
 
-	// Only restart once the new bytes are actually persisted — restarting before a failed
-	// Update would boot the agent onto the same stale cert and log a misleading success.
-	if certChanged {
-		r.restartAgentAfterCertChange(ctx, argoCDNamespace, false)
-	}
+	// Only converge the Deployment once the new bytes are actually persisted — acting before
+	// a failed Update would roll the agent onto the same stale cert and log a success.
+	r.ensureAgentRestartedForCert(ctx, argoCDNamespace, agentCertDigest(tlsCrt, tlsKey))
 
 	return nil
 }
 
-// restartAgentAfterCertChange rolls the argocd-agent agent Deployment so it re-reads the
-// client certificate from the API server.
+// agentCertDigest fingerprints the keypair. This value is stamped on the agent's pod
+// template so the Deployment records WHICH certificate revision it was last rolled for,
+// which is what makes the restart decision level-triggered (see
+// ensureAgentRestartedForCert).
 //
-// Best-effort by design, exactly like restartPrincipalDeployment: the certificate IS
-// provisioned by the time we get here, so a missing Deployment (the operator has not created
-// it yet) or a transient patch error must never fail certificate reconciliation. The next
-// reconcile interval retries, and the content-gate still holds because the gate compares the
-// SECRET's bytes, not whether a previous restart succeeded.
+// Lengths are mixed in so the digest is unambiguous: hashing cert||key alone would give the
+// same result for any other split of the same concatenated bytes.
 //
-// NOTE: the agent Deployment is owned by the ArgoCD CR (argocd-operator), not by this
-// controller. Patching only spec.template.metadata.annotations is safe there: the operator's
-// field manager does not own that field, so server-side apply does not fight us and the
-// annotation is not reconciled away. Verified against a live spoke — the patch bumped
-// .metadata.generation, rolled the pod, and the annotation persisted across operator resyncs.
-func (r *ArgoCDAgentAddonReconciler) restartAgentAfterCertChange(ctx context.Context, namespace string, firstIssuance bool) {
-	klog.InfoS("Agent TLS client certificate changed — restarting argocd-agent to load it",
-		"namespace", namespace, "deployment", agentDeploymentName, "firstIssuance", firstIssuance)
+// SHA-256 is one-way, so stamping this on a pod template exposes no key material. It is the
+// same approach as Helm's conventional checksum/secret annotation.
+func agentCertDigest(tlsCrt, tlsKey []byte) string {
+	h := sha256.New()
+	fmt.Fprintf(h, "%d:", len(tlsCrt))
+	h.Write(tlsCrt)
+	fmt.Fprintf(h, "%d:", len(tlsKey))
+	h.Write(tlsKey)
+	return hex.EncodeToString(h.Sum(nil))
+}
 
-	if err := r.restartAgentDeployment(ctx, namespace); err != nil {
+// ensureAgentRestartedForCert converges the agent Deployment onto the certificate revision
+// identified by wantDigest, rolling it only when the Deployment is not already recorded as
+// running that revision.
+//
+// 🔴 LEVEL-TRIGGERED ON PURPOSE — DO NOT REWRITE THIS AS "restart if the secret changed".
+// That edge-triggered shape looks equivalent and is not. If the Patch fails transiently
+// (conflict, throttling, webhook blip) right after the Secret was persisted, the next
+// reconcile sees the stored bytes already matching the source, concludes "nothing changed",
+// and never retries — leaving the agent on a certificate that will expire, which is exactly
+// the outage this whole change exists to prevent. Comparing the DESIRED digest against what
+// the Deployment actually carries makes a missed restart self-healing: the mismatch persists
+// until a Patch succeeds, and disappears on its own once it does.
+//
+// The same property gives us loop-safety for free — a steady-state reconcile finds the
+// digests equal and does nothing, so the periodic
+// ArgoCDAgentAddonReconciler.reconcile does not roll the agent every interval.
+//
+// Best-effort, exactly like restartPrincipalDeployment: the certificate IS provisioned by the
+// time we get here, so a missing Deployment (the operator has not created it yet) or a
+// transient patch error must never fail certificate reconciliation.
+func (r *ArgoCDAgentAddonReconciler) ensureAgentRestartedForCert(ctx context.Context, namespace, wantDigest string) {
+	deployment := &appsv1.Deployment{}
+	key := types.NamespacedName{Name: agentDeploymentName, Namespace: namespace}
+
+	if err := r.Get(ctx, key, deployment); err != nil {
 		if errors.IsNotFound(err) {
-			// Expected on first issuance / before the operator has created the agent.
+			// Normal before the operator has created the agent from the ArgoCD CR. The agent
+			// reads the certificate itself on first start, so there is nothing to roll.
 			klog.V(1).InfoS("argocd-agent Deployment not found; it will read the certificate on first start",
+				"namespace", namespace, "deployment", agentDeploymentName)
+			return
+		}
+		// Cannot tell whether a restart is needed. Do NOT patch blindly — that would roll the
+		// agent on every reconcile whenever reads are failing. The next reconcile retries, and
+		// the digest mismatch (if any) is still there waiting.
+		klog.ErrorS(err, "Could not read argocd-agent Deployment to check certificate revision (non-fatal; will retry next reconcile)",
+			"namespace", namespace, "deployment", agentDeploymentName)
+		return
+	}
+
+	if deployment.Spec.Template.Annotations[agentCertDigestAnnotation] == wantDigest {
+		klog.V(2).InfoS("argocd-agent already running the current TLS client certificate",
+			"namespace", namespace, "deployment", agentDeploymentName)
+		return
+	}
+
+	klog.InfoS("argocd-agent is not running the current TLS client certificate — restarting it to load the new keypair",
+		"namespace", namespace, "deployment", agentDeploymentName,
+		"have", deployment.Spec.Template.Annotations[agentCertDigestAnnotation], "want", wantDigest)
+
+	if err := r.restartAgentDeployment(ctx, namespace, wantDigest); err != nil {
+		if errors.IsNotFound(err) {
+			klog.V(1).InfoS("argocd-agent Deployment disappeared before it could be restarted",
 				"namespace", namespace, "deployment", agentDeploymentName)
 			return
 		}
@@ -347,10 +394,16 @@ func (r *ArgoCDAgentAddonReconciler) restartAgentAfterCertChange(ctx context.Con
 	}
 }
 
-// restartAgentDeployment stamps the conventional restartedAt annotation on the agent
-// Deployment's pod template — the same mechanism as `kubectl rollout restart` — using a
-// merge patch so we touch nothing else in the operator-owned spec.
-func (r *ArgoCDAgentAddonReconciler) restartAgentDeployment(ctx context.Context, namespace string) error {
+// restartAgentDeployment rolls the agent by stamping the certificate digest — plus a
+// human-readable timestamp — on its pod template, the same mechanism as
+// `kubectl rollout restart`.
+//
+// The DIGEST is what makes the rollout happen and what records the revision for the
+// level-triggered check above; the timestamp is purely for operators reading
+// `kubectl describe`. Note the digest cannot be replaced by a timestamp alone: RFC3339 is
+// second-precision, so two rotations inside the same second would produce an identical
+// annotation and the second would not roll the Deployment at all.
+func (r *ArgoCDAgentAddonReconciler) restartAgentDeployment(ctx context.Context, namespace, certDigest string) error {
 	deployment := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      agentDeploymentName,
@@ -361,7 +414,8 @@ func (r *ArgoCDAgentAddonReconciler) restartAgentDeployment(ctx context.Context,
 	// A raw merge patch (not a full Update) so this cannot clobber operator-managed fields
 	// and needs no read-modify-write conflict retry.
 	patch := []byte(fmt.Sprintf(
-		`{"spec":{"template":{"metadata":{"annotations":{%q:%q}}}}}`,
+		`{"spec":{"template":{"metadata":{"annotations":{%q:%q,%q:%q}}}}}`,
+		agentCertDigestAnnotation, certDigest,
 		agentCertRestartedAtAnnotation, time.Now().UTC().Format(time.RFC3339)))
 
 	if err := r.Patch(ctx, deployment, client.RawPatch(types.MergePatchType, patch)); err != nil {
@@ -369,6 +423,6 @@ func (r *ArgoCDAgentAddonReconciler) restartAgentDeployment(ctx context.Context,
 	}
 
 	klog.InfoS("Restarted argocd-agent Deployment after certificate change",
-		"namespace", namespace, "deployment", agentDeploymentName)
+		"namespace", namespace, "deployment", agentDeploymentName, "certDigest", certDigest)
 	return nil
 }
