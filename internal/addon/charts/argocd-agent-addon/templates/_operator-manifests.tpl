@@ -407,6 +407,10 @@ spec:
       labels:
         control-plane: argocd-operator
     spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
       - args:
         - --leader-elect

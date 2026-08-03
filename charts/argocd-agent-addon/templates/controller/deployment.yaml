@@ -21,6 +21,10 @@ spec:
         app.kubernetes.io/component: controller
         app.kubernetes.io/part-of: argocd-agent-addon
     spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       serviceAccountName: argocd-pull-integration-controller-manager
       securityContext:
         runAsNonRoot: true
