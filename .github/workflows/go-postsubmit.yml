@@ -19,9 +19,8 @@ jobs:
   images:
     name: images
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        arch: [ amd64 ]
+    permissions:
+      contents: read
     steps:
       - name: checkout code
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -32,13 +31,11 @@ jobs:
         uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version: ${{ env.GO_VERSION }}
-      - name: install imagebuilder
-        run: go install github.com/openshift/imagebuilder/cmd/imagebuilder@v1.2.3
-      - name: pull base image
-        run: docker pull registry.access.redhat.com/ubi9/ubi-minimal:latest --platform=linux/${{ matrix.arch }}
-      - name: images
-        run: make docker-build
-      - name: push
-        run: |
-          echo ${{ secrets.DOCKER_PASSWORD }} | docker login quay.io --username ${{ secrets.DOCKER_USER }} --password-stdin
-          docker push quay.io/open-cluster-management/argocd-pull-integration:latest
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - name: Login to Quay.io
+        run: echo ${{ secrets.DOCKER_PASSWORD }} | docker login quay.io --username ${{ secrets.DOCKER_USER }} --password-stdin
+      - name: Build and push multi-arch image
+        run: make docker-buildx PLATFORMS=linux/amd64,linux/arm64
