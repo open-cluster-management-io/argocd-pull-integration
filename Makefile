@@ -366,7 +366,7 @@ docker-buildx: ## Build and push docker image for the manager for cross-platform
 	sed -e '1 s/\(^FROM\)/FROM --platform=\$$\{BUILDPLATFORM\}/; t' -e ' 1,// s//FROM --platform=\$$\{BUILDPLATFORM\}/' Dockerfile > Dockerfile.cross
 	- $(CONTAINER_TOOL) buildx create --name argocd-pull-integration-builder
 	$(CONTAINER_TOOL) buildx use argocd-pull-integration-builder
-	- $(CONTAINER_TOOL) buildx build --push --platform=$(PLATFORMS) --build-arg ARGOCD_OPERATOR_IMAGE=$(ARGOCD_OPERATOR_IMAGE) --tag ${IMG} -f Dockerfile.cross .
+	$(CONTAINER_TOOL) buildx build --push --platform=$(PLATFORMS) --build-arg ARGOCD_OPERATOR_IMAGE=$(ARGOCD_OPERATOR_IMAGE) --tag ${IMG} -f Dockerfile.cross .
 	- $(CONTAINER_TOOL) buildx rm argocd-pull-integration-builder
 	rm Dockerfile.cross
 
