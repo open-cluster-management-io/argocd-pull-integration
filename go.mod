@@ -11,7 +11,7 @@ require (
 	k8s.io/apiextensions-apiserver v0.36.3
 	k8s.io/apimachinery v0.36.4
 	k8s.io/apiserver v0.36.3
-	k8s.io/client-go v0.36.3
+	k8s.io/client-go v0.36.4
 	k8s.io/klog/v2 v2.140.0
 	open-cluster-management.io/api v1.3.0
 	open-cluster-management.io/sdk-go v1.3.0
