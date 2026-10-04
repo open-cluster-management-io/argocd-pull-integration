@@ -11,6 +11,7 @@ env:
   GITHUB_REF: ${{ github.ref }}
   CHART_NAME: argocd-agent-addon
   BASIC_CHART_NAME: argocd-pull-integration
+  CRDS_CHART_NAME: argocd-agent-addon-crds
 
 jobs:
   env:
@@ -88,6 +89,15 @@ jobs:
           cat charts/${{ env.CHART_NAME }}/Chart.yaml
           echo "=== values.yaml (tag section) ==="
           grep -A2 "^image:" charts/${{ env.CHART_NAME }}/values.yaml || true
+      - name: prepare CRDs chart for release
+        run: |
+          RELEASE_VERSION="${{ needs.env.outputs.TRIMMED_RELEASE_VERSION }}"
+          sed -i "s/^appVersion:.*/appVersion: ${RELEASE_VERSION}/" charts/${{ env.CRDS_CHART_NAME }}/Chart.yaml
+          sed -i "s/^version:.*/version: ${RELEASE_VERSION}/" charts/${{ env.CRDS_CHART_NAME }}/Chart.yaml
+
+          echo "CRDs chart prepared for release ${RELEASE_VERSION}"
+          echo "=== Chart.yaml ==="
+          cat charts/${{ env.CRDS_CHART_NAME }}/Chart.yaml
       - name: prepare basic chart for release
         run: |
           # Update basic chart
@@ -108,6 +118,7 @@ jobs:
           mkdir -p release
           pushd release
           helm package ../charts/${{ env.CHART_NAME }}/
+          helm package ../charts/${{ env.CRDS_CHART_NAME }}/
           helm package ../charts/${{ env.BASIC_CHART_NAME }}/
           popd
       - name: generate changelog
@@ -116,6 +127,7 @@ jobs:
           echo "" >> /home/runner/work/changelog.txt
           echo "This release includes:" >> /home/runner/work/changelog.txt
           echo "- **Advanced Pull Model Chart**: \`${{ env.CHART_NAME }}-${{ needs.env.outputs.TRIMMED_RELEASE_VERSION }}.tgz\`" >> /home/runner/work/changelog.txt
+          echo "- **Advanced Pull Model CRDs Chart**: \`${{ env.CRDS_CHART_NAME }}-${{ needs.env.outputs.TRIMMED_RELEASE_VERSION }}.tgz\`" >> /home/runner/work/changelog.txt
           echo "- **Basic Pull Model Chart**: \`${{ env.BASIC_CHART_NAME }}-${{ needs.env.outputs.TRIMMED_RELEASE_VERSION }}.tgz\`" >> /home/runner/work/changelog.txt
       - name: publish release
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2

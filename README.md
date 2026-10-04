@@ -179,8 +179,13 @@ For detailed argocd-agent architecture and operational modes, see [argocd-agent 
 helm repo add ocm https://open-cluster-management.io/helm-charts
 helm repo update
 helm search repo ocm
-helm install argocd-agent-addon ocm/argocd-agent-addon --namespace argocd --create-namespace
+helm install argocd-agent-addon-crds ocm/argocd-agent-addon-crds --namespace argocd --create-namespace
+kubectl wait --for=condition=Established \
+  crd/argocds.argoproj.io crd/gitopsclusters.apps.open-cluster-management.io
+helm install argocd-agent-addon ocm/argocd-agent-addon --namespace argocd
 ```
+
+The CRDs come from a separate chart that is installed first. Helm does not reliably wait for CRDs in a chart's `crds/` folder before it creates resources that use them, which fails with `no matches for kind "ArgoCD"` (see [#191](https://github.com/open-cluster-management-io/argocd-pull-integration/issues/191)).
 
 This installs the GitOpsCluster controller and creates a GitOpsCluster resource that automatically deploys argocd-agent to your managed clusters.
 
@@ -222,6 +227,8 @@ For detailed information about argocd-agent modes and configuration options, see
 By default, the `argocd-agent-addon` chart installs its own argocd-operator and hub `ArgoCD` CR. If you already run an argocd-operator-managed Argo CD instance on the hub (with `spec.argoCDAgent.principal.enabled: true`), you can adopt it instead of installing a second one:
 
 ```bash
+helm install argocd-agent-addon-crds ocm/argocd-agent-addon-crds --namespace argocd
+kubectl wait --for=condition=Established crd/gitopsclusters.apps.open-cluster-management.io
 helm install argocd-agent-addon ocm/argocd-agent-addon \
   --namespace argocd \
   --set hubArgoCD.enabled=false

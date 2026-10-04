@@ -80,6 +80,18 @@ verify-operator-chart-sync: ## Verify hub operator manifests partial matches emb
 		>/dev/null 2>&1 \
 		|| { echo "ERROR: operator charts are out of sync. Run 'make sync-operator-chart'."; exit 1; }
 
+.PHONY: sync-crds-chart
+sync-crds-chart: ## Copy hub chart CRDs to the standalone CRDs chart
+	@echo "Syncing CRDs from hub chart to CRDs chart..."
+	cp charts/argocd-agent-addon/crds/*.yaml charts/argocd-agent-addon-crds/crds/
+	@echo "CRDs synced successfully"
+
+.PHONY: verify-crds-chart-sync
+verify-crds-chart-sync: ## Verify the standalone CRDs chart matches the hub chart CRDs
+	@diff -rq charts/argocd-agent-addon/crds charts/argocd-agent-addon-crds/crds \
+		>/dev/null 2>&1 \
+		|| { echo "ERROR: CRDs chart is out of sync. Run 'make sync-crds-chart'."; exit 1; }
+
 .PHONY: fmt
 fmt: ## Run go fmt against code.
 	go fmt ./...
@@ -89,7 +101,7 @@ vet: ## Run go vet against code.
 	go vet ./...
 
 .PHONY: test
-test: manifests generate fmt vet setup-envtest verify-operator-chart-sync ## Run tests.
+test: manifests generate fmt vet setup-envtest verify-operator-chart-sync verify-crds-chart-sync ## Run tests.
 	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" go test $$(go list ./... | grep -v /e2e) -coverprofile cover.out
 
 # E2E Test Configuration
@@ -125,6 +137,20 @@ test-e2e-advanced-pull: manifests generate fmt vet ## Run advanced pull model e2
 	@echo ""
 	@echo "===== Installing addon via Helm ====="
 	$(KUBECTL) config use-context kind-$(HUB_CLUSTER)
+	helm install argocd-agent-addon-crds \
+		./charts/argocd-agent-addon-crds \
+		--namespace argocd \
+		--create-namespace
+	@# kubectl wait errors out immediately (instead of polling) if a freshly-created CRD's
+	@# .status.conditions is still nil rather than an empty list, so retry on top of it.
+	@for i in $$(seq 1 30); do \
+		$(KUBECTL) wait --for=condition=Established --timeout=10s \
+			crd/argocds.argoproj.io crd/gitopsclusters.apps.open-cluster-management.io \
+			&& exit 0; \
+		echo "Waiting for CRDs to establish (attempt $$i/30)..."; \
+		sleep 2; \
+	done; \
+	echo "ERROR: CRDs did not establish in time"; exit 1
 	helm install argocd-agent-addon \
 		./charts/argocd-agent-addon \
 		--namespace argocd \
