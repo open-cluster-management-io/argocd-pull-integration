@@ -180,9 +180,12 @@ helm repo add ocm https://open-cluster-management.io/helm-charts
 helm repo update
 helm search repo ocm
 helm install argocd-agent-addon-crds ocm/argocd-agent-addon-crds --namespace argocd --create-namespace
-# kubectl wait can fail right after the CRDs are created, so retry until it succeeds
-until kubectl wait --for=condition=Established --timeout=60s \
-  crd/argocds.argoproj.io crd/gitopsclusters.apps.open-cluster-management.io; do sleep 2; done
+# kubectl wait can fail right after the CRDs are created, so retry up to 5 times
+for i in 1 2 3 4 5; do
+  kubectl wait --for=condition=Established --timeout=60s \
+    crd/argocds.argoproj.io crd/gitopsclusters.apps.open-cluster-management.io && break
+  sleep 2
+done
 helm install argocd-agent-addon ocm/argocd-agent-addon --namespace argocd
 ```
 
@@ -229,7 +232,12 @@ By default, the `argocd-agent-addon` chart installs its own argocd-operator and 
 
 ```bash
 helm install argocd-agent-addon-crds ocm/argocd-agent-addon-crds --namespace argocd
-until kubectl wait --for=condition=Established --timeout=60s crd/gitopsclusters.apps.open-cluster-management.io; do sleep 2; done
+# kubectl wait can fail right after the CRDs are created, so retry up to 5 times
+for i in 1 2 3 4 5; do
+  kubectl wait --for=condition=Established --timeout=60s \
+    crd/gitopsclusters.apps.open-cluster-management.io && break
+  sleep 2
+done
 helm install argocd-agent-addon ocm/argocd-agent-addon \
   --namespace argocd \
   --set hubArgoCD.enabled=false
