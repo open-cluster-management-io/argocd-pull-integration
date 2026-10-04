@@ -180,13 +180,16 @@ helm repo add ocm https://open-cluster-management.io/helm-charts
 helm repo update
 helm search repo ocm
 helm install argocd-agent-addon-crds ocm/argocd-agent-addon-crds --namespace argocd --create-namespace
-# kubectl wait can fail right after the CRDs are created, so retry up to 5 times
+# kubectl wait can fail right after the CRDs are created, so retry up to 5 times.
+# The addon chart is installed only once the CRDs are Established.
 for i in 1 2 3 4 5; do
-  kubectl wait --for=condition=Established --timeout=60s \
-    crd/argocds.argoproj.io crd/gitopsclusters.apps.open-cluster-management.io && break
+  if kubectl wait --for=condition=Established --timeout=60s \
+      crd/argocds.argoproj.io crd/gitopsclusters.apps.open-cluster-management.io; then
+    helm install argocd-agent-addon ocm/argocd-agent-addon --namespace argocd
+    break
+  fi
   sleep 2
 done
-helm install argocd-agent-addon ocm/argocd-agent-addon --namespace argocd
 ```
 
 The CRDs come from a separate chart that is installed first. Helm does not reliably wait for CRDs in a chart's `crds/` folder before it creates resources that use them, which fails with `no matches for kind "ArgoCD"` (see [#191](https://github.com/open-cluster-management-io/argocd-pull-integration/issues/191)).
@@ -232,15 +235,18 @@ By default, the `argocd-agent-addon` chart installs its own argocd-operator and 
 
 ```bash
 helm install argocd-agent-addon-crds ocm/argocd-agent-addon-crds --namespace argocd
-# kubectl wait can fail right after the CRDs are created, so retry up to 5 times
+# kubectl wait can fail right after the CRDs are created, so retry up to 5 times.
+# The addon chart is installed only once the CRDs are Established.
 for i in 1 2 3 4 5; do
-  kubectl wait --for=condition=Established --timeout=60s \
-    crd/gitopsclusters.apps.open-cluster-management.io && break
+  if kubectl wait --for=condition=Established --timeout=60s \
+      crd/gitopsclusters.apps.open-cluster-management.io; then
+    helm install argocd-agent-addon ocm/argocd-agent-addon \
+      --namespace argocd \
+      --set hubArgoCD.enabled=false
+    break
+  fi
   sleep 2
 done
-helm install argocd-agent-addon ocm/argocd-agent-addon \
-  --namespace argocd \
-  --set hubArgoCD.enabled=false
 ```
 
 With `hubArgoCD.enabled=false`, the chart still installs the `GitOpsCluster` controller, placement, and `ClusterManagementAddOn` - it just skips installing argocd-operator and the hub `ArgoCD` CR, relying on the existing instance for principal service discovery.
