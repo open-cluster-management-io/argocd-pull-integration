@@ -83,6 +83,7 @@ verify-operator-chart-sync: ## Verify hub operator manifests partial matches emb
 .PHONY: sync-crds-chart
 sync-crds-chart: ## Copy hub chart CRDs to the standalone CRDs chart
 	@echo "Syncing CRDs from hub chart to CRDs chart..."
+	rm -f charts/argocd-agent-addon-crds/crds/*.yaml
 	cp charts/argocd-agent-addon/crds/*.yaml charts/argocd-agent-addon-crds/crds/
 	@echo "CRDs synced successfully"
 
