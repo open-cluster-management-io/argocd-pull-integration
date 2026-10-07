@@ -12,6 +12,7 @@ a copy of its manifests in two locations (which must stay in sync):
 | Location | Purpose |
 |----------|---------|
 | `charts/argocd-agent-addon/crds/argocd-operator-crds.yaml` | CRDs installed on the hub via Helm |
+| `charts/argocd-agent-addon-crds/crds/argocd-operator-crds.yaml` | Same CRDs in the standalone CRDs chart, installed before the hub chart (copy of the line above, verified by `make verify-crds-chart-sync`) |
 | `charts/argocd-agent-addon/templates/argocd-operator/_operator-manifests.tpl` | Operator deployment manifests, shared partial (hub) |
 | `charts/argocd-agent-addon/templates/argocd-operator/operator.yaml` | Includes the partial above, gated by `.Values.hubArgoCD.enabled` |
 | `charts/argocd-agent-addon/templates/argocd-operator/argocd.yaml` | Hub ArgoCD CR (principal config), also gated by `.Values.hubArgoCD.enabled` |
@@ -106,6 +107,7 @@ grep -c "conversion:" /tmp/operator-crds-clean.yaml  # should output 0
 cd <this-repo>
 cp /tmp/operator-crds-clean.yaml charts/argocd-agent-addon/crds/argocd-operator-crds.yaml
 cp /tmp/operator-crds-clean.yaml internal/addon/charts/argocd-agent-addon/crds/argocd-operator-crds.yaml
+make sync-crds-chart
 ```
 
 ### Step 3: Generate operator deployment manifests
@@ -230,6 +232,9 @@ diff <(grep -v '{{' charts/argocd-agent-addon/templates/argocd-operator/_operato
 # Verify CRD files are identical
 diff charts/argocd-agent-addon/crds/argocd-operator-crds.yaml \
      internal/addon/charts/argocd-agent-addon/crds/argocd-operator-crds.yaml
+
+# Verify the standalone CRDs chart matches the hub chart
+make verify-crds-chart-sync
 
 # Run unit tests
 make test
