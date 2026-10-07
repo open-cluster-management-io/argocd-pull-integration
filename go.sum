@@ -294,8 +294,8 @@ k8s.io/utils v0.0.0-20260707023825-cf1189d6abe3 h1:jVkFFVfXdXP74B/zbO3hM3hpSFD0x
 k8s.io/utils v0.0.0-20260707023825-cf1189d6abe3/go.mod h1:M2s5JB1lIYP3jzZdorPLHXIPJzt9vv2muW5a6L9DtNM=
 open-cluster-management.io/api v1.4.0 h1:pHcuT0dljNVWqiMmwo7OjJ+CW8lZODBzAFJ5u4cgiqg=
 open-cluster-management.io/api v1.4.0/go.mod h1:/qLKuMbMS1+MpirTjaw4BoS3INKG8jV3s5J7iju48tg=
-open-cluster-management.io/sdk-go v1.3.0 h1:03VnnN3c10FwWnsSl9+apevKadLUw1hrKIu91JHL364=
-open-cluster-management.io/sdk-go v1.3.0/go.mod h1:+zL1hpfT73F4kxq3k293H6qsgm8k4YiC1giSwn36fAo=
+open-cluster-management.io/sdk-go v1.4.0 h1:zqqKVF63qIgvZ1eNVbSS+SW3Zw/+bf0dTOFK9pSkWXE=
+open-cluster-management.io/sdk-go v1.4.0/go.mod h1:QmXMsVKuv1SabVoZenQrA3iubXKRJGiqLltewyc+CW4=
 sigs.k8s.io/apiserver-network-proxy/konnectivity-client v0.36.0 h1:/YpDJ4vReG7ZmzSpBGxduXgywWkJU9zHubgJG03MT+Y=
 sigs.k8s.io/apiserver-network-proxy/konnectivity-client v0.36.0/go.mod h1:tJo1aepTXyR+8Xs3sUsGBDk4Ub2AM5dPAPKJx0mpm5c=
 sigs.k8s.io/controller-runtime v0.25.2 h1:bEkK3PVOIVK9X8QWLGVhJgmFc++47vfT6wakSzAOLsQ=
