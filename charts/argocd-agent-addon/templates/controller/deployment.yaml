@@ -37,6 +37,9 @@ spec:
         args:
         - --mode=controller
         - --leader-elect
+        {{- with .Values.controller.cacheNamespace }}
+        - --cache-namespace={{ . }}
+        {{- end }}
         env:
         - name: CONTROLLER_IMAGE
           value: "{{ .Values.image }}:{{ .Values.tag }}"
