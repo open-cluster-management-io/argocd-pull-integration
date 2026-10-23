@@ -26,6 +26,9 @@ import (
 	// to ensure that exec-entrypoint and run can make use of them.
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
+	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -33,6 +36,8 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/cache"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
@@ -79,6 +84,7 @@ var (
 	probeAddr                      string
 	enableLeaderElection           bool
 	argoCDNamespace                string
+	cacheNamespace                 string
 	manifestWorkCleanupIntervalMin int
 )
 
@@ -111,6 +117,9 @@ func main() {
 		"Enable leader election for controller manager. "+
 			"Enabling this will ensure there is only one active controller manager.")
 	flag.StringVar(&argoCDNamespace, "argocd-namespace", "argocd", "The namespace where ArgoCD Secrets are created (basic mode only).")
+	flag.StringVar(&cacheNamespace, "cache-namespace", "", "Limit the controller's cache of namespaced core, RBAC and "+
+		"GitOpsCluster objects to this namespace, so it needs no cluster-wide access to Secrets. GitOpsClusters "+
+		"outside it are ignored. Empty (the default) watches all namespaces (controller mode only).")
 	flag.IntVar(&manifestWorkCleanupIntervalMin, "manifestwork-cleanup-interval", 5, "The interval in minutes for cleaning up orphaned ManifestWorks (basic mode only).")
 	flag.BoolVar(&secureMetrics, "metrics-secure", true,
 		"If set, the metrics endpoint is served securely via HTTPS. Use --metrics-secure=false to use HTTP instead.")
@@ -216,6 +225,7 @@ func main() {
 		HealthProbeBindAddress: probeAddr,
 		LeaderElection:         enableLeaderElection,
 		LeaderElectionID:       "7310a56a.open-cluster-management.io",
+		Cache:                  controllerCacheOptions(cacheNamespace),
 	})
 	if err != nil {
 		setupLog.Error(err, "unable to start manager")
@@ -393,4 +403,26 @@ func runBasicMode() {
 		setupLog.Error(err, "problem running basic manager")
 		os.Exit(1)
 	}
+}
+
+// controllerCacheOptions scopes the controller's cache to one namespace for the namespaced objects it reads
+// and writes there (the GitOpsCluster's namespace: its Secrets, RBAC, Services, Deployments and Placements).
+// ManagedClusters, ManifestWorks and add-on objects stay cluster-wide. An empty namespace keeps the default.
+func controllerCacheOptions(namespace string) cache.Options {
+	if namespace == "" {
+		return cache.Options{}
+	}
+	scoped := cache.ByObject{Namespaces: map[string]cache.Config{namespace: {}}}
+	return cache.Options{ByObject: map[client.Object]cache.ByObject{
+		&corev1.Secret{}:                    scoped,
+		&corev1.ConfigMap{}:                 scoped,
+		&corev1.ServiceAccount{}:            scoped,
+		&corev1.Service{}:                   scoped,
+		&appsv1.Deployment{}:                scoped,
+		&rbacv1.Role{}:                      scoped,
+		&rbacv1.RoleBinding{}:               scoped,
+		&appsv1alpha1.GitOpsCluster{}:       scoped,
+		&clusterv1beta1.Placement{}:         scoped,
+		&clusterv1beta1.PlacementDecision{}: scoped,
+	}}
 }
