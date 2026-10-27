@@ -59,3 +59,8 @@ gitOpsCluster:
 # Controller settings  
 controller:
   namespace: argocd
+  # Limit the controller's cache of Secrets, ConfigMaps, ServiceAccounts, Services, Deployments, Roles,
+  # RoleBindings, GitOpsClusters, Placements and PlacementDecisions to this namespace (--cache-namespace),
+  # so it needs no cluster-wide access to Secrets. GitOpsClusters in other namespaces are then ignored.
+  # Empty (the default) watches all namespaces.
+  cacheNamespace: ""

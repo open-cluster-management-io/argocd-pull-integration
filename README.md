@@ -251,6 +251,16 @@ done
 
 With `hubArgoCD.enabled=false`, the chart still installs the `GitOpsCluster` controller, placement, and `ClusterManagementAddOn` - it just skips installing argocd-operator and the hub `ArgoCD` CR, relying on the existing instance for principal service discovery.
 
+### Scoping the Controller to the Argo CD Namespace
+
+By default the `GitOpsCluster` controller caches Secrets, ConfigMaps, ServiceAccounts, Services, Deployments, Roles and RoleBindings from every namespace, so it needs cluster-wide `list`/`watch` on them, Secrets included. It only reads and writes them in the `GitOpsCluster`'s namespace (the hub Argo CD namespace), so on a hub shared with other workloads you can scope its cache to that namespace:
+
+```bash
+helm install argocd-agent-addon ocm/argocd-agent-addon   --namespace argocd   --set controller.cacheNamespace=argocd
+```
+
+This passes `--cache-namespace=argocd` to the controller, which then also ignores `GitOpsCluster`s in other namespaces. Those permissions can then be granted by a `Role` in that namespace instead of the `ClusterRole`; `ManagedCluster`s, `ManifestWork`s and add-on objects stay cluster-wide.
+
 ### Keeping argocd-agent Versions in Sync
 
 The argocd-agent principal (hub) and agent (managed cluster) must run matching versions - a version mismatch fails the connection with `Auth failure: agent version is required`. By default, the hub principal's image is set via the chart's `argoCDAgent.image` value (`quay.io/argoprojlabs/argocd-agent:v0.9.0`), and the `GitOpsCluster` controller automatically reads whatever the hub principal's `ArgoCD` CR currently has at `spec.argoCDAgent.principal.image` and applies the same value to each managed cluster's generated `ArgoCD` CR - fresh on every reconcile, so a version bump made through the chart (`helm upgrade --set argoCDAgent.image=...`) keeps every managed cluster's agent in step automatically, without a separate field to maintain. See [Lifecycle & Upgrades](#lifecycle--upgrades) below for what "automatically" actually depends on.
