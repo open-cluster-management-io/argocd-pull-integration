@@ -59,6 +59,16 @@ gitOpsCluster:
 # Controller settings  
 controller:
   namespace: argocd
+  # Hub Argo CD connection to the Principal Resource Proxy, independent of
+  # gitOpsCluster.principalServerAddress/Port (the agent-to-Principal endpoint).
+  resourceProxy:
+    # HTTPS origin, for example https://argocd-agent-principal-resource-proxy.argocd.svc:9090.
+    # Each generated cluster URL includes ?agentName=<managed-cluster-name>.
+    # Empty retains the legacy https://<cluster>-control-plane registration.
+    server: ""
+    # Optional DNS name from the Resource Proxy serving certificate.
+    # Empty uses normal TLS hostname verification against the URL hostname.
+    tlsServerName: ""
   # Limit the controller's cache of Secrets, ConfigMaps, ServiceAccounts, Services, Deployments, Roles,
   # RoleBindings, GitOpsClusters, Placements and PlacementDecisions to this namespace (--cache-namespace),
   # so it needs no cluster-wide access to Secrets. GitOpsClusters in other namespaces are then ignored.

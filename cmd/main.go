@@ -233,9 +233,11 @@ func main() {
 	}
 
 	if err = (&controller.GitOpsClusterReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
-		Config: mgr.GetConfig(),
+		Client:                     mgr.GetClient(),
+		Scheme:                     mgr.GetScheme(),
+		Config:                     mgr.GetConfig(),
+		ResourceProxyServer:        os.Getenv(controller.ResourceProxyServerEnvVar),
+		ResourceProxyTLSServerName: os.Getenv(controller.ResourceProxyTLSServerNameEnvVar),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "GitOpsCluster")
 		os.Exit(1)

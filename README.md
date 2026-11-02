@@ -229,6 +229,35 @@ For detailed information about argocd-agent modes and configuration options, see
 
 ## Advanced Configuration
 
+### Configuring the Resource Proxy Connection
+
+The connection from hub Argo CD to the Principal Resource Proxy is separate from
+the Principal address advertised to managed agents. Configure the HTTPS origin
+and, if needed, a name present in the Resource Proxy serving certificate:
+
+```yaml
+controller:
+  resourceProxy:
+    server: https://argocd-agent-principal-resource-proxy.argocd.svc:9090
+    tlsServerName: argocd-agent-principal.argocd.svc
+```
+
+Use the Service and certificate SANs from your own installation. The generated
+registration for `cluster-a` becomes
+`https://argocd-agent-principal-resource-proxy.argocd.svc:9090?agentName=cluster-a`.
+The `agentName` query follows `argocd-agentctl agent create` and preserves a
+distinct server URL per cluster. Names, mapping labels, and client certificates
+remain cluster-specific; CA verification stays enabled. The TLS name override
+does not change which agent a request targets.
+
+The chart sets `ARGOCD_RESOURCE_PROXY_SERVER` and
+`ARGOCD_RESOURCE_PROXY_TLS_SERVER_NAME` on the controller. These environment
+variables can also be configured on a controller installed without Helm. They
+apply to the GitOpsClusters handled by that controller and are reapplied when
+cluster Secrets are reconciled. The server must be an HTTPS origin without
+credentials, a path prefix, query, or fragment. An empty server retains the
+legacy `https://<cluster>-control-plane` registration for compatibility.
+
 ### Adopting a Pre-Existing Hub Argo CD
 
 By default, the `argocd-agent-addon` chart installs its own argocd-operator and hub `ArgoCD` CR. If you already run an argocd-operator-managed Argo CD instance on the hub (with `spec.argoCDAgent.principal.enabled: true`), you can adopt it instead of installing a second one:

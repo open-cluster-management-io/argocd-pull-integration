@@ -46,6 +46,10 @@ type GitOpsClusterReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
 	Config *rest.Config
+	// ResourceProxyServer is an optional HTTPS origin for hub cluster registrations.
+	ResourceProxyServer string
+	// ResourceProxyTLSServerName overrides TLS name verification for that origin.
+	ResourceProxyTLSServerName string
 }
 
 // +kubebuilder:rbac:groups=apps.open-cluster-management.io,resources=gitopsclusters,verbs=get;list;watch;create;update;patch;delete

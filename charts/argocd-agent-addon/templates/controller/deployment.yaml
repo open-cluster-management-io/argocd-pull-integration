@@ -43,6 +43,14 @@ spec:
         env:
         - name: CONTROLLER_IMAGE
           value: "{{ .Values.image }}:{{ .Values.tag }}"
+        {{- with .Values.controller.resourceProxy.server }}
+        - name: ARGOCD_RESOURCE_PROXY_SERVER
+          value: {{ . | quote }}
+        {{- end }}
+        {{- with .Values.controller.resourceProxy.tlsServerName }}
+        - name: ARGOCD_RESOURCE_PROXY_TLS_SERVER_NAME
+          value: {{ . | quote }}
+        {{- end }}
         securityContext:
           readOnlyRootFilesystem: true
           allowPrivilegeEscalation: false
