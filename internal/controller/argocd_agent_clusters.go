@@ -253,13 +253,20 @@ func (r *GitOpsClusterReconciler) clusterConnectionData(clusterName string, clie
 		return nil, err
 	}
 
+	// Removing the proxy origin restores legacy URL hostname verification, even
+	// if an old TLS name remains in the controller's environment.
+	tlsServerName := ""
+	if r.ResourceProxyServer != "" {
+		tlsServerName = r.ResourceProxyTLSServerName
+	}
+
 	// Build cluster config with certificate data
 	config := ClusterConfig{
 		Username: clusterName,
 		Password: clusterName, // Using cluster name as password for simplicity
 		TLSClientConfig: &TLSClientConfig{
 			Insecure:   false,
-			ServerName: r.ResourceProxyTLSServerName,
+			ServerName: tlsServerName,
 			CertData:   clientCertPEM,
 			KeyData:    clientKeyPEM,
 			CAData:     caCertPEM,

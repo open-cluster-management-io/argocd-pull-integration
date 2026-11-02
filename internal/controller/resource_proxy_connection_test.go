@@ -107,7 +107,9 @@ func TestClusterConnectionDataPreservesClusterIdentity(t *testing.T) {
 }
 
 func TestClusterConnectionDataOverrideChangeAndRemoval(t *testing.T) {
-	r := &GitOpsClusterReconciler{}
+	// Keep the TLS name set while changing/removing the proxy origin, as can
+	// happen when only the server setting is cleared during an upgrade.
+	r := &GitOpsClusterReconciler{ResourceProxyTLSServerName: "principal.example.com"}
 	for _, server := range []string{"https://first.example.com:9090", "https://second.example.com:9090", ""} {
 		r.ResourceProxyServer = server
 		data, err := r.clusterConnectionData("cluster-a", []byte("cert"), []byte("key"), []byte("ca"))
@@ -129,8 +131,18 @@ func TestClusterConnectionDataOverrideChangeAndRemoval(t *testing.T) {
 		if err := json.Unmarshal(config["tlsClientConfig"], &tls); err != nil {
 			t.Fatal(err)
 		}
-		if _, exists := tls["serverName"]; exists {
-			t.Fatal("empty serverName must retain normal URL hostname verification")
+		if server == "" {
+			if _, exists := tls["serverName"]; exists {
+				t.Fatal("legacy URL must not retain the Resource Proxy TLS name override")
+			}
+		} else {
+			var serverName string
+			if err := json.Unmarshal(tls["serverName"], &serverName); err != nil {
+				t.Fatal(err)
+			}
+			if serverName != "principal.example.com" {
+				t.Fatalf("proxy TLS name = %q, want principal.example.com", serverName)
+			}
 		}
 	}
 	r.ResourceProxyServer = "http://insecure.example.com"

@@ -257,6 +257,8 @@ apply to the GitOpsClusters handled by that controller and are reapplied when
 cluster Secrets are reconciled. The server must be an HTTPS origin without
 credentials, a path prefix, query, or fragment. An empty server retains the
 legacy `https://<cluster>-control-plane` registration for compatibility.
+When the server is empty, the proxy TLS name override is also ignored so
+legacy registrations retain normal URL hostname verification.
 
 ### Adopting a Pre-Existing Hub Argo CD
 

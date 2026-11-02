@@ -68,6 +68,7 @@ controller:
     server: ""
     # Optional DNS name from the Resource Proxy serving certificate.
     # Empty uses normal TLS hostname verification against the URL hostname.
+    # Only used when server is configured; ignored for legacy registrations.
     tlsServerName: ""
   # Limit the controller's cache of Secrets, ConfigMaps, ServiceAccounts, Services, Deployments, Roles,
   # RoleBindings, GitOpsClusters, Placements and PlacementDecisions to this namespace (--cache-namespace),
