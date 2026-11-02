@@ -82,7 +82,7 @@ func (r *GitOpsClusterReconciler) EnsureAddOnTemplate(ctx context.Context, gitOp
 			AddonName: ArgoCDAgentAddonName,
 			AgentSpec: workv1.ManifestWorkSpec{
 				Workload: workv1.ManifestsTemplate{
-					Manifests: buildAddonManifests(addonImage, r.OperatorImage),
+					Manifests: buildAddonManifests(addonImage, os.Getenv(OperatorImageEnvVar)),
 				},
 			},
 			Registration: []addonv1alpha1.RegistrationSpec{

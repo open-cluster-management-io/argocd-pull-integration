@@ -235,7 +235,7 @@ func TestEnsureAddOnTemplatePropagatesOperatorImage(t *testing.T) {
 	goc := &appsv1alpha1.GitOpsCluster{ObjectMeta: metav1.ObjectMeta{Name: "gitops", Namespace: "argocd"}}
 	// Exercise creation, an override change, repeated reconciliation and removal.
 	for _, image := range []string{"registry.example.com:5000/operator:v0.18.0", "registry.example.com:5000/operator:v0.19.0", "registry.example.com:5000/operator:v0.19.0", ""} {
-		r.OperatorImage = image
+		t.Setenv(OperatorImageEnvVar, image)
 		if err := r.EnsureAddOnTemplate(context.Background(), goc); err != nil {
 			t.Fatal(err)
 		}

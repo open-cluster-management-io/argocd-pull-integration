@@ -46,9 +46,6 @@ type GitOpsClusterReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
 	Config *rest.Config
-	// OperatorImage is the runtime override propagated to managed add-ons.
-	// Empty leaves the add-on's compiled default in effect.
-	OperatorImage string
 }
 
 // +kubebuilder:rbac:groups=apps.open-cluster-management.io,resources=gitopsclusters,verbs=get;list;watch;create;update;patch;delete
