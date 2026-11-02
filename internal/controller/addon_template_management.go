@@ -38,6 +38,8 @@ import (
 const (
 	// ControllerImageEnvVar is the environment variable name for the controller image
 	ControllerImageEnvVar = "CONTROLLER_IMAGE"
+	// OperatorImageEnvVar overrides the operator image in managed add-on mode.
+	OperatorImageEnvVar = "ARGOCD_OPERATOR_IMAGE"
 )
 
 // getControllerImage retrieves the controller's image from environment variable
@@ -80,7 +82,7 @@ func (r *GitOpsClusterReconciler) EnsureAddOnTemplate(ctx context.Context, gitOp
 			AddonName: ArgoCDAgentAddonName,
 			AgentSpec: workv1.ManifestWorkSpec{
 				Workload: workv1.ManifestsTemplate{
-					Manifests: buildAddonManifests(addonImage),
+					Manifests: buildAddonManifests(addonImage, r.OperatorImage),
 				},
 			},
 			Registration: []addonv1alpha1.RegistrationSpec{
@@ -116,9 +118,9 @@ func (r *GitOpsClusterReconciler) EnsureAddOnTemplate(ctx context.Context, gitOp
 }
 
 // buildAddonManifests builds the manifest list for the AddOnTemplate.
-// The addon binary has the operator image baked in at build time, so no
-// operator/agent image env vars are needed.
-func buildAddonManifests(addonImage string) []workv1.Manifest {
+// The operator image override is delivered with the add-on; an empty override
+// retains the binary's compiled default.
+func buildAddonManifests(addonImage, operatorImage string) []workv1.Manifest {
 	manifests := []workv1.Manifest{
 		// Pre-delete cleanup job
 		{
@@ -155,6 +157,10 @@ func buildAddonManifests(addonImage string) []workv1.Manifest {
 											{
 												Name:  "ARGOCD_OPERATOR_NAMESPACE",
 												Value: "{{ARGOCD_OPERATOR_NAMESPACE}}",
+											},
+											{
+												Name:  OperatorImageEnvVar,
+												Value: operatorImage,
 											},
 										},
 									},
@@ -251,6 +257,10 @@ func buildAddonManifests(addonImage string) []workv1.Manifest {
 											{
 												Name:  "ARGOCD_OPERATOR_NAMESPACE",
 												Value: "{{ARGOCD_OPERATOR_NAMESPACE}}",
+											},
+											{
+												Name:  OperatorImageEnvVar,
+												Value: operatorImage,
 											},
 										},
 										SecurityContext: &corev1.SecurityContext{

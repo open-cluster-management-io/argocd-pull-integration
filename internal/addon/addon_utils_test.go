@@ -20,6 +20,7 @@ import (
 	"context"
 	"testing"
 
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -395,6 +396,39 @@ func TestCopyEmbeddedToTemp(t *testing.T) {
 				t.Error("destPath should not be empty")
 			}
 		})
+	}
+}
+
+func TestTemplateAndApplyChartUsesMirroredOperator(t *testing.T) {
+	s := runtime.NewScheme()
+	if err := scheme.AddToScheme(s); err != nil {
+		t.Fatal(err)
+	}
+	r := &ArgoCDAgentAddonReconciler{
+		Client: fake.NewClientBuilder().WithScheme(s).Build(),
+		Scheme: s,
+	}
+	for _, image := range []string{"registry.example.com:5000/mirror/operator:v0.18.0", "registry.example.com:5000/mirror/operator:v0.19.0"} {
+		r.OperatorImage = image
+		if err := r.templateAndApplyChart(context.Background(), "charts/argocd-agent-addon", "argocd-operator-system", "argocd", "argocd"); err != nil {
+			t.Fatal(err)
+		}
+		deployment := &appsv1.Deployment{}
+		if err := r.Get(context.Background(), types.NamespacedName{Namespace: "argocd-operator-system", Name: "argocd-operator-controller-manager"}, deployment); err != nil {
+			t.Fatal(err)
+		}
+		found := false
+		for _, container := range deployment.Spec.Template.Spec.Containers {
+			if container.Name == "manager" {
+				found = true
+				if container.Image != image {
+					t.Fatalf("rendered operator image = %q, want %q", container.Image, image)
+				}
+			}
+		}
+		if !found {
+			t.Fatal("operator Deployment has no manager container")
+		}
 	}
 }
 

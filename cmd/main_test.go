@@ -29,7 +29,24 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	appsv1alpha1 "open-cluster-management.io/argocd-pull-integration/api/v1alpha1"
+	"open-cluster-management.io/argocd-pull-integration/internal/controller"
 )
+
+func TestOperatorImageFromEnvironment(t *testing.T) {
+	const defaultImage = "quay.io/argoprojlabs/argocd-operator:v0.18.0"
+	for _, image := range []string{"", "registry.example.com/argocd-operator:v0.18.0", "registry.example.com:5000/mirror/argocd-operator:v0.18.0"} {
+		t.Run(image, func(t *testing.T) {
+			t.Setenv(controller.OperatorImageEnvVar, image)
+			want := image
+			if want == "" {
+				want = defaultImage
+			}
+			if got := operatorImageFromEnvironment(defaultImage); got != want {
+				t.Fatalf("operator image = %q, want %q", got, want)
+			}
+		})
+	}
+}
 
 func TestControllerCacheOptionsDefaultIsClusterWide(t *testing.T) {
 	opts := controllerCacheOptions("")

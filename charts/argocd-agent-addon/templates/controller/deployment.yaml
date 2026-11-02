@@ -43,6 +43,8 @@ spec:
         env:
         - name: CONTROLLER_IMAGE
           value: "{{ .Values.image }}:{{ .Values.tag }}"
+        - name: ARGOCD_OPERATOR_IMAGE
+          value: "{{ .Values.operatorImage }}:{{ .Values.operatorImageTag }}"
         securityContext:
           readOnlyRootFilesystem: true
           allowPrivilegeEscalation: false

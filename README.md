@@ -229,6 +229,27 @@ For detailed information about argocd-agent modes and configuration options, see
 
 ## Advanced Configuration
 
+### Mirroring the Managed Operator Image
+
+The Helm `operatorImage` and `operatorImageTag` values select the operator image
+on both the hub and managed clusters. For example:
+
+```yaml
+operatorImage: registry.example.com:5000/mirror/argocd-operator
+operatorImageTag: v0.18.0
+```
+
+The controller passes this complete tagged reference to the add-on Deployment
+and cleanup Job through `ARGOCD_OPERATOR_IMAGE`. The add-on uses that value when
+rendering its embedded operator chart. Reconciliation and controller restarts
+retain the configured override, including for newly selected clusters.
+
+For installations without Helm, set `ARGOCD_OPERATOR_IMAGE` on the hub controller
+Deployment. The runtime value takes precedence over the operator image compiled
+into the binary; an unset or empty value retains the compiled default. Use a
+tagged reference; this override does not add digest support to the embedded
+chart. Registry credentials must be configured separately on the managed nodes.
+
 ### Adopting a Pre-Existing Hub Argo CD
 
 By default, the `argocd-agent-addon` chart installs its own argocd-operator and hub `ArgoCD` CR. If you already run an argocd-operator-managed Argo CD instance on the hub (with `spec.argoCDAgent.principal.enabled: true`), you can adopt it instead of installing a second one:

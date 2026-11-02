@@ -5,7 +5,8 @@ image: quay.io/open-cluster-management/argocd-pull-integration
 tag: latest
 replicas: 1
 
-# ArgoCD operator image.
+# ArgoCD operator image for both the hub and managed clusters.
+# Passed to the controller and managed add-ons as ARGOCD_OPERATOR_IMAGE.
 # Authoritative version lives in Makefile ARGOCD_OPERATOR_IMAGE (injected into
 # the Go binary via ldflags). These Helm defaults MUST match the Makefile value.
 # The release workflow updates the tag automatically for tagged releases.
