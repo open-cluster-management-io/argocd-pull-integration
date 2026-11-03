@@ -22,6 +22,8 @@ import (
 	"crypto/x509"
 	"encoding/json"
 	"fmt"
+	"net/url"
+	"strconv"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -45,6 +47,12 @@ const (
 	ArgoCDAgentClusterMappingLabel = "argocd-agent.argoproj-labs.io/agent-name"
 
 	clusterClientCertificateSignerSkew = 2 * time.Second
+
+	// ResourceProxyServerEnvVar configures the connection origin independently of
+	// the Principal address advertised to agents.
+	ResourceProxyServerEnvVar = "ARGOCD_RESOURCE_PROXY_SERVER"
+	// ResourceProxyTLSServerNameEnvVar configures the serving certificate's name.
+	ResourceProxyTLSServerNameEnvVar = "ARGOCD_RESOURCE_PROXY_TLS_SERVER_NAME"
 )
 
 // ClusterConfig represents the ArgoCD cluster configuration
@@ -56,10 +64,11 @@ type ClusterConfig struct {
 
 // TLSClientConfig represents the TLS client configuration for ArgoCD cluster secrets.
 type TLSClientConfig struct {
-	Insecure bool   `json:"insecure"`
-	CertData []byte `json:"certData,omitempty"`
-	KeyData  []byte `json:"keyData,omitempty"`
-	CAData   []byte `json:"caData,omitempty"`
+	Insecure   bool   `json:"insecure"`
+	ServerName string `json:"serverName,omitempty"`
+	CertData   []byte `json:"certData,omitempty"`
+	KeyData    []byte `json:"keyData,omitempty"`
+	CAData     []byte `json:"caData,omitempty"`
 }
 
 // importManagedClusterToArgoCD imports a single managed cluster to ArgoCD in agent format
@@ -233,15 +242,34 @@ func (r *GitOpsClusterReconciler) buildArgoCDClusterSecretData(
 		return nil, fmt.Errorf("CA certificate not found in secret")
 	}
 
+	return r.clusterConnectionData(cluster.Name, clientCertPEM, clientKeyPEM, caCertPEM)
+}
+
+// clusterConnectionData serializes the desired connection settings on both
+// creation and update, retaining each cluster's identity and client credentials.
+func (r *GitOpsClusterReconciler) clusterConnectionData(clusterName string, clientCertPEM, clientKeyPEM, caCertPEM []byte) (map[string][]byte, error) {
+	server, err := resourceProxyServerURL(r.ResourceProxyServer, clusterName)
+	if err != nil {
+		return nil, err
+	}
+
+	// Removing the proxy origin restores legacy URL hostname verification, even
+	// if an old TLS name remains in the controller's environment.
+	tlsServerName := ""
+	if r.ResourceProxyServer != "" {
+		tlsServerName = r.ResourceProxyTLSServerName
+	}
+
 	// Build cluster config with certificate data
 	config := ClusterConfig{
-		Username: cluster.Name,
-		Password: cluster.Name, // Using cluster name as password for simplicity
+		Username: clusterName,
+		Password: clusterName, // Using cluster name as password for simplicity
 		TLSClientConfig: &TLSClientConfig{
-			Insecure: false,
-			CertData: clientCertPEM,
-			KeyData:  clientKeyPEM,
-			CAData:   caCertPEM,
+			Insecure:   false,
+			ServerName: tlsServerName,
+			CertData:   clientCertPEM,
+			KeyData:    clientKeyPEM,
+			CAData:     caCertPEM,
 		},
 	}
 
@@ -252,12 +280,37 @@ func (r *GitOpsClusterReconciler) buildArgoCDClusterSecretData(
 
 	// Build secret data
 	data := map[string][]byte{
-		"name":   []byte(cluster.Name),
-		"server": []byte(fmt.Sprintf("https://%s-control-plane", cluster.Name)),
+		"name":   []byte(clusterName),
+		"server": []byte(server),
 		"config": configJSON,
 	}
 
 	return data, nil
+}
+
+// resourceProxyServerURL follows argocd-agentctl's registration format. The
+// agentName query keeps server URLs distinct even when the origin is shared.
+func resourceProxyServerURL(server, clusterName string) (string, error) {
+	if server == "" {
+		return fmt.Sprintf("https://%s-control-plane", clusterName), nil
+	}
+	u, err := url.Parse(server)
+	if err != nil {
+		return "", fmt.Errorf("invalid resource proxy server URL: %w", err)
+	}
+	if u.Scheme != "https" || u.Hostname() == "" || u.User != nil ||
+		(u.Path != "" && u.Path != "/") || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" {
+		return "", fmt.Errorf("resource proxy server must be an HTTPS origin without user info, path, query or fragment")
+	}
+	if port := u.Port(); port != "" {
+		if value, err := strconv.Atoi(port); err != nil || value < 1 || value > 65535 {
+			return "", fmt.Errorf("resource proxy server port must be between 1 and 65535")
+		}
+	}
+	query := u.Query()
+	query.Set("agentName", clusterName)
+	u.RawQuery = query.Encode()
+	return u.String(), nil
 }
 
 // ensureClusterClientCertificate ensures a client certificate for a cluster using certrotation
