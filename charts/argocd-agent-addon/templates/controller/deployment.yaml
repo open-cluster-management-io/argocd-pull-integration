@@ -41,6 +41,8 @@ spec:
         - --cache-namespace={{ . }}
         {{- end }}
         env:
+        - name: ARGOCD_OPERATOR_IMAGE
+          value: "{{ .Values.operatorImage }}:{{ .Values.operatorImageTag }}"
         - name: CONTROLLER_IMAGE
           value: "{{ .Values.image }}:{{ .Values.tag }}"
         securityContext:

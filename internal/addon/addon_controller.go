@@ -52,7 +52,7 @@ type ArgoCDAgentAddonReconciler struct {
 // Returns an error if operatorImage is empty or unparseable.
 func SetupWithManager(mgr manager.Manager, interval int, operatorImage string) error {
 	if operatorImage == "" {
-		return fmt.Errorf("operatorImage must not be empty (set via Makefile ARGOCD_OPERATOR_IMAGE / ldflags)")
+		return fmt.Errorf("operatorImage must not be empty (set via ARGOCD_OPERATOR_IMAGE at runtime or Makefile / ldflags)")
 	}
 	if _, _, err := ParseImageReference(operatorImage); err != nil {
 		return fmt.Errorf("invalid operatorImage %q: %w", operatorImage, err)

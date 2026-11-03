@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"testing"
 
@@ -212,7 +213,7 @@ func TestEnsureAddOnTemplate(t *testing.T) {
 }
 
 func TestBuildAddonManifests(t *testing.T) {
-	manifests := buildAddonManifests("addon-image:v1")
+	manifests := buildAddonManifests("addon-image:v1", "")
 
 	if len(manifests) == 0 {
 		t.Error("buildAddonManifests() returned no manifests")
@@ -220,5 +221,56 @@ func TestBuildAddonManifests(t *testing.T) {
 
 	if len(manifests) != 4 {
 		t.Errorf("buildAddonManifests() returned %d manifests, want 4", len(manifests))
+	}
+}
+
+func TestEnsureAddOnTemplatePropagatesOperatorImage(t *testing.T) {
+	t.Setenv(ControllerImageEnvVar, "registry.example.com/pull-integration:latest")
+	s := runtime.NewScheme()
+	_ = addonv1alpha1.AddToScheme(s)
+	r := &GitOpsClusterReconciler{
+		Client: fake.NewClientBuilder().WithScheme(s).Build(),
+		Scheme: s,
+	}
+	goc := &appsv1alpha1.GitOpsCluster{ObjectMeta: metav1.ObjectMeta{Name: "gitops", Namespace: "argocd"}}
+	// Exercise creation, an override change, repeated reconciliation and removal.
+	for _, image := range []string{"registry.example.com:5000/operator:v0.18.0", "registry.example.com:5000/operator:v0.19.0", "registry.example.com:5000/operator:v0.19.0", ""} {
+		t.Setenv(OperatorImageEnvVar, image)
+		if err := r.EnsureAddOnTemplate(context.Background(), goc); err != nil {
+			t.Fatal(err)
+		}
+		template := &addonv1alpha1.AddOnTemplate{}
+		if err := r.Get(context.Background(), types.NamespacedName{Name: getAddOnTemplateName(goc)}, template); err != nil {
+			t.Fatal(err)
+		}
+		checked := 0
+		for _, manifest := range template.Spec.AgentSpec.Workload.Manifests {
+			// RawExtension can contain either Object or Raw after persistence.
+			data, err := json.Marshal(manifest.RawExtension)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var workload struct {
+				Spec struct {
+					Template corev1.PodTemplateSpec `json:"template"`
+				} `json:"spec"`
+			}
+			if err := json.Unmarshal(data, &workload); err != nil {
+				t.Fatal(err)
+			}
+			for _, container := range workload.Spec.Template.Spec.Containers {
+				for _, env := range container.Env {
+					if env.Name == OperatorImageEnvVar {
+						checked++
+						if env.Value != image {
+							t.Fatalf("%s operator image = %q, want %q", container.Name, env.Value, image)
+						}
+					}
+				}
+			}
+		}
+		if checked != 2 {
+			t.Fatalf("expected override on the add-on and cleanup Job, checked %d containers", checked)
+		}
 	}
 }

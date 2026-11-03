@@ -251,6 +251,27 @@ done
 
 With `hubArgoCD.enabled=false`, the chart still installs the `GitOpsCluster` controller, placement, and `ClusterManagementAddOn` - it just skips installing argocd-operator and the hub `ArgoCD` CR, relying on the existing instance for principal service discovery.
 
+### Mirroring the Managed Operator Image
+
+The Helm `operatorImage` and `operatorImageTag` values select the operator image
+on both the hub and managed clusters. For example:
+
+```yaml
+operatorImage: registry.example.com:5000/mirror/argocd-operator
+operatorImageTag: v0.18.0
+```
+
+The controller passes this complete tagged reference to the add-on Deployment
+and cleanup Job through `ARGOCD_OPERATOR_IMAGE`. The add-on uses that value when
+rendering its embedded operator chart. Reconciliation and controller restarts
+retain the configured override, including for newly selected clusters.
+
+For installations without Helm, set `ARGOCD_OPERATOR_IMAGE` on the hub controller
+Deployment. The runtime value takes precedence over the operator image compiled
+into the binary; an unset or empty value retains the compiled default. Use a
+tagged reference; this override does not add digest support to the embedded
+chart. Registry credentials must be configured separately on the managed nodes.
+
 ### Scoping the Controller to the Argo CD Namespace
 
 By default the `GitOpsCluster` controller caches Secrets, ConfigMaps, ServiceAccounts, Services, Deployments, Roles and RoleBindings from every namespace, so it needs cluster-wide `list`/`watch` on them, Secrets included. It only reads and writes them in the `GitOpsCluster`'s namespace (the hub Argo CD namespace), so on a hub shared with other workloads you can scope its cache to that namespace:

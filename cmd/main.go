@@ -57,7 +57,7 @@ import (
 )
 
 // Set at build time via ldflags from Makefile's ARGOCD_OPERATOR_IMAGE.
-// This is the single source of truth for the ArgoCD operator version.
+// This is the default when ARGOCD_OPERATOR_IMAGE is not set at runtime.
 var operatorImage = "quay.io/argoprojlabs/argocd-operator:v0.18.0"
 
 // AddonOptions for addon mode command line flag parsing
@@ -102,6 +102,8 @@ func init() {
 
 // nolint:gocyclo
 func main() {
+	operatorImage = operatorImageFromEnvironment(operatorImage)
+
 	var mode string
 	var metricsCertPath, metricsCertName, metricsCertKey string
 	var webhookCertPath, webhookCertName, webhookCertKey string
@@ -256,6 +258,14 @@ func main() {
 		setupLog.Error(err, "problem running manager")
 		os.Exit(1)
 	}
+}
+
+// operatorImageFromEnvironment retains the compiled default for non-Helm installs.
+func operatorImageFromEnvironment(defaultImage string) string {
+	if image := os.Getenv(controller.OperatorImageEnvVar); image != "" {
+		return image
+	}
+	return defaultImage
 }
 
 // runAddonMode runs the application in addon mode
