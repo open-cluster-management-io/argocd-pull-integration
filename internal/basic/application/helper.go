@@ -128,7 +128,9 @@ func prepareApplicationForWorkPayload(application *unstructured.Unstructured) un
 	}
 
 	// set the spec field
-	if newSpec, ok := application.Object["spec"].(map[string]interface{}); ok {
+	if spec, ok := application.Object["spec"].(map[string]interface{}); ok {
+		// copy the spec so that changing the destination does not change the hub Application
+		newSpec := runtime.DeepCopyJSON(spec)
 		if destination, ok := newSpec["destination"].(map[string]interface{}); ok {
 			annos := application.GetAnnotations()
 			customName, hasCustomName := annos[AnnotationKeyDestinationName]
