@@ -7,7 +7,7 @@ require (
 	github.com/onsi/gomega v1.44.0
 	github.com/openshift/library-go v0.0.0-20260721103755-0c9fbc9f043a
 	helm.sh/helm/v3 v3.22.1
-	k8s.io/api v0.37.1
+	k8s.io/api v0.37.2
 	k8s.io/apiextensions-apiserver v0.37.1
 	k8s.io/apimachinery v0.37.2
 	k8s.io/apiserver v0.37.1
