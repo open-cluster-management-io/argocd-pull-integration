@@ -30,6 +30,7 @@ import (
 	"k8s.io/client-go/kubernetes/scheme"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	addonv1alpha1 "open-cluster-management.io/api/addon/v1alpha1"
 	clusterv1 "open-cluster-management.io/api/cluster/v1"
@@ -110,6 +111,15 @@ func caManifestWork(cluster string) *workv1.ManifestWork {
 	return &workv1.ManifestWork{ObjectMeta: metav1.ObjectMeta{Name: ArgoCDAgentCAManifestWorkName, Namespace: cluster}}
 }
 
+func crManifestWorkName() string {
+	return getArgoCDCRManifestWorkName(cleanupTestNamespace, cleanupTestGitOpsCluster().Name)
+}
+
+// crManifestWork is the Argo CD CR ManifestWork this GitOpsCluster creates in a cluster's namespace.
+func crManifestWork(cluster string) *workv1.ManifestWork {
+	return &workv1.ManifestWork{ObjectMeta: metav1.ObjectMeta{Name: crManifestWorkName(), Namespace: cluster}}
+}
+
 func exists(t *testing.T, c client.Client, obj client.Object, namespace, name string) bool {
 	t.Helper()
 	err := c.Get(context.TODO(), types.NamespacedName{Namespace: namespace, Name: name}, obj)
@@ -128,7 +138,11 @@ func TestCleanupRemovedClusters(t *testing.T) {
 		objects     []client.Object
 		current     []string
 		wantRemoved int
-		// gone and kept: "secret/<name>", "addon/<cluster>", "config/<cluster>", "ca-work/<cluster>"
+		// failDelete names an object whose deletion fails.
+		failDelete string
+		wantErr    bool
+		// gone and kept: "secret/<name>", "addon/<cluster>", "config/<cluster>", "ca-work/<cluster>",
+		// "cr-work/<cluster>"
 		gone []string
 		kept []string
 	}{
@@ -194,6 +208,43 @@ func TestCleanupRemovedClusters(t *testing.T) {
 			kept:        []string{"config/cell3"},
 		},
 		{
+			// Two GitOpsClusters in one Argo CD namespace: the other one's cluster is not this one's to clean.
+			name: "a cluster another placement registered, found from its add-on",
+			objects: []client.Object{
+				addon("cell4"), clusterSecret("cell4", "other-placement"), clientSecret("cell4"),
+			},
+			wantRemoved: 0,
+			kept:        []string{"addon/cell4", "secret/cluster-cell4", "secret/argocd-cluster-client-cell4"},
+		},
+		{
+			name: "a cluster another placement registered, found from its config",
+			objects: []client.Object{
+				addonConfig("cell5"), clusterSecret("cell5", "other-placement"), clientSecret("cell5"),
+			},
+			wantRemoved: 0,
+			kept:        []string{"config/cell5", "secret/cluster-cell5", "secret/argocd-cluster-client-cell5"},
+		},
+		{
+			name: "a deleted cluster's Argo CD CR ManifestWork, its last object but the config",
+			objects: []client.Object{
+				crManifestWork("cell6"), addonConfig("cell6"),
+			},
+			wantRemoved: 1,
+			gone:        []string{"cr-work/cell6", "config/cell6"},
+		},
+		{
+			// The config is how a later reconcile finds the cluster again.
+			name: "a failed delete keeps the config",
+			objects: []client.Object{
+				clusterSecret("cell7", cleanupTestPlacement), clientSecret("cell7"), addonConfig("cell7"),
+			},
+			failDelete:  "argocd-cluster-client-cell7",
+			wantErr:     true,
+			wantRemoved: 1,
+			gone:        []string{"secret/cluster-cell7"},
+			kept:        []string{"secret/argocd-cluster-client-cell7", "config/cell7"},
+		},
+		{
 			name:        "nothing left of any cluster",
 			wantRemoved: 0,
 		},
@@ -201,7 +252,18 @@ func TestCleanupRemovedClusters(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			c := fake.NewClientBuilder().WithScheme(cleanupTestScheme(t)).WithObjects(tt.objects...).Build()
+			builder := fake.NewClientBuilder().WithScheme(cleanupTestScheme(t)).WithObjects(tt.objects...)
+			if tt.failDelete != "" {
+				builder = builder.WithInterceptorFuncs(interceptor.Funcs{
+					Delete: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.DeleteOption) error {
+						if obj.GetName() == tt.failDelete {
+							return fmt.Errorf("injected failure deleting %s", obj.GetName())
+						}
+						return c.Delete(ctx, obj, opts...)
+					},
+				})
+			}
+			c := builder.Build()
 			r := &GitOpsClusterReconciler{Client: c}
 			current := []*clusterv1.ManagedCluster{}
 			for _, name := range tt.current {
@@ -209,8 +271,8 @@ func TestCleanupRemovedClusters(t *testing.T) {
 			}
 
 			removed, err := r.cleanupRemovedClusters(context.TODO(), cleanupTestGitOpsCluster(), current)
-			if err != nil {
-				t.Fatalf("cleanupRemovedClusters: %v", err)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("cleanupRemovedClusters: error %v, want error %v", err, tt.wantErr)
 			}
 			if removed != tt.wantRemoved {
 				t.Errorf("removed %d clusters, want %d", removed, tt.wantRemoved)
@@ -227,6 +289,8 @@ func TestCleanupRemovedClusters(t *testing.T) {
 					return exists(t, c, &addonv1alpha1.AddOnDeploymentConfig{}, name, ArgoCDAgentAddonConfigName)
 				case "ca-work":
 					return exists(t, c, &workv1.ManifestWork{}, name, ArgoCDAgentCAManifestWorkName)
+				case "cr-work":
+					return exists(t, c, &workv1.ManifestWork{}, name, crManifestWorkName())
 				}
 				t.Fatalf("unknown ref %q", ref)
 				return false

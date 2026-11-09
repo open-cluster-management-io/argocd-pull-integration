@@ -350,7 +350,7 @@ func validateArgoCDCRManifestWork(spec *appsv1alpha1.ArgoCDCRManifestWorkSpec) e
 }
 
 // deleteArgoCDCRManifestWork deletes the ArgoCD CR ManifestWork for a managed cluster
-func (r *GitOpsClusterReconciler) deleteArgoCDCRManifestWork(ctx context.Context, clusterName, gitOpsClusterNamespace, gitOpsClusterName string) error {
+func (r *GitOpsClusterReconciler) deleteArgoCDCRManifestWork(ctx context.Context, clusterName, gitOpsClusterNamespace, gitOpsClusterName string) (bool, error) {
 	manifestWorkName := getArgoCDCRManifestWorkName(gitOpsClusterNamespace, gitOpsClusterName)
 	manifestWork := &workv1.ManifestWork{}
 	err := r.Get(ctx, types.NamespacedName{
@@ -360,15 +360,18 @@ func (r *GitOpsClusterReconciler) deleteArgoCDCRManifestWork(ctx context.Context
 
 	if err != nil {
 		if k8serrors.IsNotFound(err) {
-			return nil
+			return false, nil
 		}
-		return fmt.Errorf("failed to get ArgoCD CR ManifestWork: %w", err)
+		return false, fmt.Errorf("failed to get ArgoCD CR ManifestWork: %w", err)
 	}
 
-	if err := r.Delete(ctx, manifestWork); err != nil && !k8serrors.IsNotFound(err) {
-		return fmt.Errorf("failed to delete ArgoCD CR ManifestWork: %w", err)
+	if err := r.Delete(ctx, manifestWork); err != nil {
+		if k8serrors.IsNotFound(err) {
+			return false, nil
+		}
+		return false, fmt.Errorf("failed to delete ArgoCD CR ManifestWork: %w", err)
 	}
 
 	klog.InfoS("Deleted ArgoCD CR ManifestWork", "cluster", clusterName, "name", manifestWorkName)
-	return nil
+	return true, nil
 }

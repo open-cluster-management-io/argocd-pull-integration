@@ -624,7 +624,7 @@ func TestDeleteArgoCDCRManifestWork(t *testing.T) {
 				Scheme: s,
 			}
 
-			err := r.deleteArgoCDCRManifestWork(context.TODO(), tt.clusterName, tt.namespace, "test")
+			_, err := r.deleteArgoCDCRManifestWork(context.TODO(), tt.clusterName, tt.namespace, "test")
 			if (err != nil) != tt.wantErr {
 				t.Errorf("deleteArgoCDCRManifestWork() error = %v, wantErr %v", err, tt.wantErr)
 			}

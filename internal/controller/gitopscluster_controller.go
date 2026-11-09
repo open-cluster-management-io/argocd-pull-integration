@@ -445,7 +445,8 @@ func (r *GitOpsClusterReconciler) cleanupRemovedClusters(ctx context.Context, gi
 		}
 	}
 
-	// The add-on configs, which outlive a deleted cluster's add-on in its namespace
+	// The add-on configs, which outlive a deleted cluster's add-on in its namespace. Only a deleted
+	// cluster's: a cluster that still exists may be another GitOpsCluster's.
 	configList := &addonv1alpha1.AddOnDeploymentConfigList{}
 	if err := r.List(ctx, configList, client.MatchingLabels{
 		"app.kubernetes.io/managed-by": "argocd-pull-integration",
@@ -454,8 +455,14 @@ func (r *GitOpsClusterReconciler) cleanupRemovedClusters(ctx context.Context, gi
 		return 0, fmt.Errorf("failed to list AddOnDeploymentConfigs: %w", err)
 	}
 	for _, config := range configList.Items {
-		if config.Name == ArgoCDAgentAddonConfigName && !currentClusterNames[config.Namespace] {
+		if config.Name != ArgoCDAgentAddonConfigName || currentClusterNames[config.Namespace] || removed[config.Namespace] {
+			continue
+		}
+		err := r.Get(ctx, types.NamespacedName{Name: config.Namespace}, &clusterv1.ManagedCluster{})
+		if k8serrors.IsNotFound(err) {
 			removed[config.Namespace] = true
+		} else if err != nil {
+			return 0, fmt.Errorf("failed to get ManagedCluster %s: %w", config.Namespace, err)
 		}
 	}
 
@@ -466,10 +473,11 @@ func (r *GitOpsClusterReconciler) cleanupRemovedClusters(ctx context.Context, gi
 	sort.Strings(clusterNames)
 
 	clustersRemoved := 0
+	var errs []error
 	for _, clusterName := range clusterNames {
 		deleted, err := r.cleanupRemovedCluster(ctx, gitOpsCluster, clusterName)
 		if err != nil {
-			klog.ErrorS(err, "Failed to clean up removed cluster", "cluster", clusterName)
+			errs = append(errs, fmt.Errorf("cluster %s: %w", clusterName, err))
 		}
 		if deleted {
 			klog.InfoS("Successfully deleted resources for removed cluster", "cluster", clusterName)
@@ -477,13 +485,25 @@ func (r *GitOpsClusterReconciler) cleanupRemovedClusters(ctx context.Context, gi
 		}
 	}
 
-	return clustersRemoved, nil
+	return clustersRemoved, errors.Join(errs...)
 }
 
 // cleanupRemovedCluster deletes what the controller created for one cluster no longer in the placement,
-// tolerating what is already gone. It reports whether it deleted anything.
+// tolerating what is already gone. It reports whether it deleted anything. A cluster whose Argo CD cluster
+// Secret another placement's GitOpsCluster created, in the same namespace, is that GitOpsCluster's and
+// is left alone.
 func (r *GitOpsClusterReconciler) cleanupRemovedCluster(ctx context.Context, gitOpsCluster *appsv1alpha1.GitOpsCluster, clusterName string) (bool, error) {
 	argoCDNamespace := gitOpsCluster.Namespace
+	clusterSecret := &corev1.Secret{}
+	err := r.Get(ctx, types.NamespacedName{Namespace: argoCDNamespace, Name: fmt.Sprintf("cluster-%s", clusterName)}, clusterSecret)
+	if err != nil && !k8serrors.IsNotFound(err) {
+		return false, fmt.Errorf("failed to get ArgoCD cluster secret: %w", err)
+	}
+	if placement := clusterSecret.Labels["placement-name"]; err == nil && placement != "" && placement != gitOpsCluster.Spec.PlacementRef.Name {
+		klog.V(2).InfoS("Leaving a cluster another placement registered", "cluster", clusterName, "placement", placement)
+		return false, nil
+	}
+
 	deleted := false
 	var errs []error
 	remove := func(obj client.Object, what string) bool {
@@ -508,14 +528,20 @@ func (r *GitOpsClusterReconciler) cleanupRemovedCluster(ctx context.Context, git
 	}
 
 	remove(&workv1.ManifestWork{ObjectMeta: metav1.ObjectMeta{Name: ArgoCDAgentCAManifestWorkName, Namespace: clusterName}}, "CA ManifestWork")
-	if err := r.deleteArgoCDCRManifestWork(ctx, clusterName, gitOpsCluster.Namespace, gitOpsCluster.Name); err != nil {
-		errs = append(errs, fmt.Errorf("failed to delete ArgoCD CR ManifestWork: %w", err))
+	if crDeleted, err := r.deleteArgoCDCRManifestWork(ctx, clusterName, gitOpsCluster.Namespace, gitOpsCluster.Name); err != nil {
+		errs = append(errs, err)
+	} else if crDeleted {
+		deleted = true
 	}
 	remove(&corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: fmt.Sprintf("cluster-%s", clusterName), Namespace: argoCDNamespace}}, "ArgoCD cluster secret")
 	remove(&corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: fmt.Sprintf("argocd-cluster-client-%s", clusterName), Namespace: argoCDNamespace}}, "cluster client certificate secret")
 
 	// The AddOnDeploymentConfig, once the addon has finished deleting and the cluster itself is gone:
-	// a cluster that only left the placement may still be using its namespace.
+	// a cluster that only left the placement may still be using its namespace. Kept while anything above
+	// failed: it is how a later reconcile finds this cluster again.
+	if len(errs) > 0 {
+		return deleted, errors.Join(errs...)
+	}
 	if err := r.Get(ctx, types.NamespacedName{Namespace: clusterName, Name: ArgoCDAgentAddonName}, addon); !k8serrors.IsNotFound(err) {
 		return deleted, errors.Join(append(errs, client.IgnoreNotFound(err))...)
 	}
