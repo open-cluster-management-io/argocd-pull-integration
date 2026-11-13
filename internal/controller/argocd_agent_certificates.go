@@ -19,10 +19,10 @@ package controller
 import (
 	"bytes"
 	"context"
-	"fmt"
-	"time"
-
 	"crypto/x509"
+	"fmt"
+	"sync"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
@@ -154,10 +154,11 @@ func (r *GitOpsClusterReconciler) EnsurePrincipalCertificate(ctx context.Context
 	}
 
 	// Setup informers
-	informerFactory, secretLister, err := r.setupInformers(kubeClient, namespace)
+	_, secretLister, stopInformers, err := r.setupInformers(kubeClient, namespace)
 	if err != nil {
 		return err
 	}
+	defer stopInformers()
 
 	// Load the CA cert
 	signingCertKeyPair, caBundleCerts, err := r.loadCACertificate(kubeClient, secretLister, namespace)
@@ -189,9 +190,6 @@ func (r *GitOpsClusterReconciler) EnsurePrincipalCertificate(ctx context.Context
 	if err := principalRotation.EnsureTargetCertKeyPair(signingCertKeyPair, caBundleCerts); err != nil {
 		return fmt.Errorf("failed to ensure principal TLS certificate: %w", err)
 	}
-
-	// Stop informer
-	defer informerFactory.Shutdown()
 
 	klog.InfoS("Successfully ensured principal TLS certificate",
 		"namespace", namespace, "secret", ArgoCDAgentPrincipalTLSSecretName)
@@ -298,10 +296,11 @@ func (r *GitOpsClusterReconciler) EnsureResourceProxyCertificate(ctx context.Con
 	}
 
 	// Setup informers
-	informerFactory, secretLister, err := r.setupInformers(kubeClient, namespace)
+	_, secretLister, stopInformers, err := r.setupInformers(kubeClient, namespace)
 	if err != nil {
 		return err
 	}
+	defer stopInformers()
 
 	// Load the CA cert
 	signingCertKeyPair, caBundleCerts, err := r.loadCACertificate(kubeClient, secretLister, namespace)
@@ -323,9 +322,6 @@ func (r *GitOpsClusterReconciler) EnsureResourceProxyCertificate(ctx context.Con
 	if err := resourceProxyRotation.EnsureTargetCertKeyPair(signingCertKeyPair, caBundleCerts); err != nil {
 		return fmt.Errorf("failed to ensure resource proxy TLS certificate: %w", err)
 	}
-
-	// Stop informer
-	defer informerFactory.Shutdown()
 
 	klog.InfoS("Successfully ensured resource proxy TLS certificate",
 		"namespace", namespace, "secret", ArgoCDAgentResourceProxyTLSSecretName)
@@ -349,10 +345,11 @@ func (r *GitOpsClusterReconciler) verifyCACertificateExists(ctx context.Context,
 	return nil
 }
 
-// setupInformers creates and starts the informer factory
+// setupInformers starts a Secrets informer factory. Callers must defer stop.
 func (r *GitOpsClusterReconciler) setupInformers(
-	kubeClient *kubernetes.Clientset,
-	namespace string) (informers.SharedInformerFactory, v1.SecretLister, error) {
+	kubeClient kubernetes.Interface,
+	namespace string,
+) (informers.SharedInformerFactory, v1.SecretLister, func(), error) {
 
 	informerFactory := informers.NewSharedInformerFactoryWithOptions(
 		kubeClient,
@@ -362,23 +359,31 @@ func (r *GitOpsClusterReconciler) setupInformers(
 
 	secretLister := informerFactory.Core().V1().Secrets().Lister()
 
-	// Start the informer and wait for cache sync
 	stopCh := make(chan struct{})
-	go func() {
-		<-time.After(30 * time.Second)
-		close(stopCh)
-	}()
+	var stopOnce sync.Once
+	stop := func() {
+		stopOnce.Do(func() {
+			close(stopCh)
+		})
+		informerFactory.Shutdown()
+	}
+
 	informerFactory.Start(stopCh)
 
-	// Wait for cache to sync
-	cacheSyncs := informerFactory.WaitForCacheSync(stopCh)
-	for informerType, synced := range cacheSyncs {
+	syncCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	cacheSyncs := informerFactory.WaitForCacheSyncWithContext(syncCtx)
+	for informerType, synced := range cacheSyncs.Synced {
 		if !synced {
-			return nil, nil, fmt.Errorf("failed to sync informer cache for type %v", informerType)
+			stop()
+			if cacheSyncs.Err != nil {
+				return nil, nil, nil, fmt.Errorf("failed to sync informer cache for type %v: %w", informerType, cacheSyncs.Err)
+			}
+			return nil, nil, nil, fmt.Errorf("failed to sync informer cache for type %v", informerType)
 		}
 	}
 
-	return informerFactory, secretLister, nil
+	return informerFactory, secretLister, stop, nil
 }
 
 // loadCACertificate loads the CA certificate from the secret
