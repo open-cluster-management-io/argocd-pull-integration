@@ -327,11 +327,11 @@ func (r *GitOpsClusterReconciler) ensureClusterClientCertificate(
 	}
 
 	// Setup informers
-	informerFactory, secretLister, err := r.setupInformers(kubeClient, namespace)
+	_, secretLister, stopInformers, err := r.setupInformers(kubeClient, namespace)
 	if err != nil {
 		return err
 	}
-	defer informerFactory.Shutdown()
+	defer stopInformers()
 
 	// Load the CA cert
 	signingCertKeyPair, caBundleCerts, err := r.loadCACertificate(kubeClient, secretLister, namespace)
